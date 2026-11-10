@@ -7,11 +7,11 @@ export async function setupEnvironment(scene: Scene, renderer: WebGLRenderer) {
 
   const pmrem = new PMREMGenerator(renderer)
   scene.environment = pmrem.fromEquirectangular(hdr).texture
-  scene.environmentIntensity = 0.55
+  scene.environmentIntensity = 0.3
   pmrem.dispose()
 
   scene.background = hdr
-  scene.backgroundBlurriness = 0.35
-  scene.backgroundIntensity = 0.45
-  scene.fog = new FogExp2(new Color(0x16241a), 0.018)
+  scene.backgroundBlurriness = 0.6
+  scene.backgroundIntensity = 0.35
+  scene.fog = new FogExp2(new Color(0xc8884a), 0.013)
 }

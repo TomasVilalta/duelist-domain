@@ -106,7 +106,7 @@ export class Zones {
     ZONES.forEach((z, i) => {
       e.set(0, z.rotY, 0)
       q.setFromEuler(e)
-      m.compose(new Vector3(z.x, 0.012, z.z), q, new Vector3(z.w, 1, z.h))
+      m.compose(new Vector3(z.x, 0.35, z.z), q, new Vector3(z.w, 1, z.h))
       this.mesh.setMatrixAt(i, m)
       radius.setX(i, z.pile ? 0.3 : 0.09)
       this.index.set(z.key, i)

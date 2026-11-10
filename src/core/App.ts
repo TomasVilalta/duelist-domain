@@ -1,9 +1,10 @@
-import { Scene, Vector3, WebGLRenderer, NoToneMapping, PCFSoftShadowMap } from 'three'
+import { Group, Scene, Vector3, WebGLRenderer, NoToneMapping, PCFSoftShadowMap } from 'three'
 import { QUALITY, detectQuality, type QualityName } from '@/config'
 import { loadPBR } from './Assets'
 import { Loop } from './Loop'
 import { createBoard } from '@/scene/Board'
-import { createDecor } from '@/scene/Decor'
+import { loadLayout } from '@/scene/layout'
+import { createRuins } from '@/scene/Ruins'
 import { setupEnvironment } from '@/scene/Environment'
 import { Lights } from '@/scene/Lights'
 import { Zones } from '@/scene/Zones'
@@ -367,16 +368,23 @@ export class App {
         await preloadCardArt(deck, r)
         return deck
       })
-    const [stone, grass, deck] = await Promise.all([
+    const ruinsPromise = loadLayout()
+      .then(createRuins)
+      .catch((e) => {
+      console.warn('Ruins failed to load', e)
+      return new Group()
+    })
+    const [stone, grass, deck, ruins] = await Promise.all([
       loadPBR('stone', 'stone', r, 4, true),
       loadPBR('grass', 'grass', r, 1),
       deckPromise,
+      ruinsPromise,
       setupEnvironment(this.scene, r),
     ])
     if (this.disposed) return
     this.deckCards = shuffle(deck)
 
-    this.scene.add(createBoard(stone, grass), createDecor(stone, q.grassCount))
+    this.scene.add(createBoard(stone, grass), ruins)
 
     this.lights = new Lights(r, q.shadowMapSize)
     this.scene.add(this.lights.group)

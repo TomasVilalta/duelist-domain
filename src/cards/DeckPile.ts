@@ -30,7 +30,7 @@ export class DeckPile {
     this.mesh.visible = n > 0
     const h = Math.max(n, 1) * THICKNESS
     this.mesh.scale.y = h
-    this.mesh.position.y = h / 2 + 0.01
+    this.mesh.position.y = h / 2 + 0.35
   }
 
   get size() {
@@ -39,6 +39,6 @@ export class DeckPile {
 
   /** World Y of the top card. */
   get topY() {
-    return this.mesh.scale.y + 0.012
+    return this.mesh.position.y + this.mesh.scale.y / 2
   }
 }

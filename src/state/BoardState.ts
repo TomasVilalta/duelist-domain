@@ -7,7 +7,7 @@ import { getZoneByKey, legalOrientation } from '@/scene/ZoneLayout'
 const Y = new Vector3(0, 1, 0)
 const X = new Vector3(1, 0, 0)
 const STACK_STEP = 0.012
-const BASE_Y = 0.045
+const BASE_Y = 0.36
 const HOVER_LIFT = 0.12
 const HOVER_SCALE = 1.06
 
