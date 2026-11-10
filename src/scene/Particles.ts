@@ -31,10 +31,13 @@ void main() {
   gl_FragColor = vec4(c * a * vAlpha, a * vAlpha);
 }`
 
+const AMBIENT_STEP = 1 / 30
+
 export class Particles implements Updatable {
   readonly points: Points
   enabled = true
   private mat: ShaderMaterial
+  private since = 0
 
   constructor(count: number) {
     const pos = new Float32Array(count * 3)
@@ -67,9 +70,13 @@ export class Particles implements Updatable {
     this.mat.uniforms.uScale.value = px * 0.9
   }
 
-  update(_dt: number, time: number): boolean {
+  update(dt: number, time: number): boolean {
     if (!this.enabled) return false
     this.mat.uniforms.uTime.value = time
+    // Ambient drift is slow: 30 fps is enough and halves idle GPU work.
+    this.since += dt
+    if (this.since < AMBIENT_STEP) return false
+    this.since = 0
     return true
   }
 }

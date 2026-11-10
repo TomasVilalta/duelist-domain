@@ -122,6 +122,66 @@ export function makeBadgeTexture(n: number): Texture {
   return toTexture(c)
 }
 
+/** "ATK / DEF" strip shown under a monster. */
+export function makeStatsTexture(atk: number, def: number): Texture {
+  const c = document.createElement('canvas')
+  c.width = 512
+  c.height = 96
+  const ctx = c.getContext('2d')!
+  const text = `${atk} / ${def}`
+  ctx.font = 'bold 84px system-ui, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 16
+  ctx.strokeStyle = 'rgba(10, 8, 4, 0.95)'
+  ctx.strokeText(text, 256, 50)
+  ctx.fillStyle = '#f6efe0'
+  ctx.fillText(text, 256, 50)
+  return toTexture(c)
+}
+
+const levelCache = new Map<number, Texture>()
+
+/** Star icon and level number. One shared texture per level; never dispose it. */
+export function makeLevelTexture(level: number): Texture {
+  const cached = levelCache.get(level)
+  if (cached) return cached
+  const tex = drawLevelTexture(level)
+  tex.userData.shared = true
+  levelCache.set(level, tex)
+  return tex
+}
+
+function drawLevelTexture(level: number): Texture {
+  const c = document.createElement('canvas')
+  c.width = 256
+  c.height = 128
+  const ctx = c.getContext('2d')!
+  const tex = toTexture(c)
+  const paint = () => {
+    ctx.clearRect(0, 0, 256, 128)
+    if (starImg.complete && starImg.naturalWidth) ctx.drawImage(starImg, 8, 8, 112, 112)
+    const text = String(level)
+    ctx.font = 'bold 96px system-ui, sans-serif'
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'middle'
+    ctx.lineJoin = 'round'
+    ctx.lineWidth = 16
+    ctx.strokeStyle = 'rgba(10, 8, 4, 0.95)'
+    ctx.strokeText(text, 132, 68)
+    ctx.fillStyle = '#f6efe0'
+    ctx.fillText(text, 132, 68)
+    tex.needsUpdate = true
+  }
+  paint()
+  if (!starImg.complete) starImg.addEventListener('load', paint, { once: true })
+  return tex
+}
+
+const starImg = new Image()
+starImg.src = `${import.meta.env.BASE_URL}level-star.png`
+
 export function makeSleeveTexture(): Texture {
   const [c, ctx] = makeCanvas()
   const g = ctx.createLinearGradient(0, 0, W, H)

@@ -30,6 +30,12 @@
   color: #cfe;
   font-size: 13px;
 }
+.hint.is-target {
+  color: #fff4cc;
+  background: rgba(20, 14, 6, 0.78);
+  border: 1px solid rgba(255, 196, 90, 0.55);
+  box-shadow: 0 0 16px rgba(255, 170, 60, 0.25);
+}
 
 .ctx-menu {
   position: fixed;
@@ -67,7 +73,87 @@
 
 .ctx-menu { transform-origin: top left; max-height: calc(100vh - 16px); overflow-y: auto; }
 .ctx-above { transform-origin: bottom center; }
-.lp, .phase-wrap, .hud-tools, .toast, .pile-view, .card-detail.is-on .card-detail-x { pointer-events: auto; }
+.lp, .phase-wrap, .hud-tools, .toast, .pile-view, .card-detail.is-on .card-detail-x, .action-btn { pointer-events: auto; }
+
+.action-bar {
+  position: absolute;
+  left: 50%;
+  bottom: 17%;
+  z-index: 25;
+  display: flex;
+  gap: 22px;
+  transform: translateX(-50%);
+}
+.action-bar[hidden] { display: none; }
+.action-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #f3fbff;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  cursor: pointer;
+}
+.action-btn i {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid rgba(190, 230, 255, 0.75);
+  background: radial-gradient(circle at 50% 38%, #1c4654, #0a1418 72%);
+  box-shadow: 0 0 12px rgba(90, 190, 230, 0.4), inset 0 0 8px rgba(140, 220, 255, 0.18);
+}
+.action-btn svg {
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.action-btn:hover i {
+  border-color: #fff;
+  box-shadow: 0 0 16px rgba(150, 230, 255, 0.75);
+}
+.action-bar.kind-monster .action-btn i {
+  border-color: rgba(255, 168, 80, 0.85);
+  box-shadow: 0 0 12px rgba(255, 140, 50, 0.4);
+}
+.action-bar.kind-spell .action-btn i {
+  border-color: rgba(80, 230, 200, 0.85);
+  box-shadow: 0 0 12px rgba(60, 220, 190, 0.4);
+}
+.action-bar.kind-trap .action-btn i {
+  border-color: rgba(255, 100, 180, 0.85);
+  box-shadow: 0 0 12px rgba(255, 70, 160, 0.4);
+}
+.action-bar.is-cancel .action-btn i {
+  border-color: rgba(255, 150, 120, 0.9);
+  background: radial-gradient(circle at 50% 38%, #5a2818, #140c0a 72%);
+  box-shadow: 0 0 12px rgba(255, 120, 70, 0.45);
+}
+.action-bar.is-cancel .action-btn:hover i {
+  border-color: #fff;
+  box-shadow: 0 0 16px rgba(255, 150, 100, 0.75);
+}
+.action-bar.is-attack .action-btn i {
+  border-color: rgba(255, 110, 70, 0.95);
+  background: radial-gradient(circle at 50% 38%, #6a1e10, #160a08 72%);
+  box-shadow: 0 0 14px rgba(255, 80, 40, 0.55);
+}
+.action-bar.is-attack .action-btn:hover i {
+  border-color: #fff;
+  box-shadow: 0 0 18px rgba(255, 100, 60, 0.85);
+}
 
 .lp {
   position: absolute;

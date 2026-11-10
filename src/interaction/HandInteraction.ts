@@ -5,6 +5,7 @@ import type { Hand } from '@/cards/Hand'
 import type { Updatable } from '@/core/Loop'
 import { boardQuat, type BoardState } from '@/state/BoardState'
 import type { Zones } from '@/scene/Zones'
+import { targetZoneKeys, type PlayAction } from '@/interaction/CardActions'
 import { getZoneByKey, isViewPile, legalOrientation, zoneAt, zonePoses, ZONES } from '@/scene/ZoneLayout'
 import { CARD_H } from '@/config'
 
@@ -30,8 +31,27 @@ interface Options {
   onHoverCard?: (card: Card | null) => void
   /** A click that never became a drag. `null` is an empty-board click. */
   onSelectCard?: (card: Card | null) => void
-  /** Double-click: the card activates. */
-  onActivate?: (card: Card) => void
+  /** A board drag started or ended. */
+  onDrag?: (active: boolean) => void
+  /** Player confirmed a summon, set, or activate by clicking a zone. */
+  onPlace?: (card: Card, key: string, faceUp: boolean, defense: boolean) => void
+  /** Player picked a monster to attack. */
+  onAttack?: (attacker: Card, target: Card | null) => void
+  /** An attack target was declared (zone key), or cleared. Drives the arrow and tooltip. */
+  onDeclare?: (attacker: Card | null, key: string | null, declared: boolean) => void
+  /** Targeting mode started or ended. `attack` is true for battle targeting. */
+  onTargeting?: (active: boolean, attack: boolean) => void
+}
+
+interface Target {
+  attack: boolean
+  /** Attack only: the zone declared as target, awaiting confirmation. */
+  declared: string | null
+  card: Card
+  faceUp: boolean
+  defense: boolean
+  keys: string[]
+  hot: string | null
 }
 
 export type ContextTarget =
@@ -73,9 +93,7 @@ export class HandInteraction implements Updatable {
   /** Card under the pointer. Separate from the raised card, which can be the pin. */
   private pointer: Card | null = null
   private pinned: Card | null = null
-  private clickCard: Card | null = null
-  private clickAt = 0
-  private clickTimer = 0
+  private targeting: Target | null = null
   private opts: Options
 
   constructor(opts: Options) {
@@ -91,7 +109,6 @@ export class HandInteraction implements Updatable {
   }
 
   dispose() {
-    window.clearTimeout(this.clickTimer)
     this.opts.canvas.removeEventListener('contextmenu', this.onContextMenu)
     const c = this.opts.canvas
     c.removeEventListener('pointermove', this.onMove)
@@ -104,6 +121,10 @@ export class HandInteraction implements Updatable {
 
   private onContextMenu = (e: MouseEvent) => {
     e.preventDefault()
+    if (this.targeting) {
+      this.cancelTarget()
+      return
+    }
     if (this.drag?.active) return
     this.setNdc(e)
     const { hand } = this.opts
@@ -188,6 +209,97 @@ export class HandInteraction implements Updatable {
     this.showHover()
   }
 
+  get pinnedCard(): Card | null {
+    return this.pinned
+  }
+
+  get isDragging(): boolean {
+    return !!this.drag?.active
+  }
+
+  /** Highlight the legal zones and wait for a click. Esc, right-click, or a click elsewhere cancels. */
+  beginTarget(card: Card, play: PlayAction) {
+    const restart = this.targeting !== null
+    this.targeting = null
+    this.opts.zones.setAllHighlights(0)
+    const owner = card.zoneKey?.startsWith('p2') ? 'p2' : 'p1'
+    const keys = targetZoneKeys(owner, play.zone, (key) => this.opts.board.cardsIn(key).length === 0)
+    this.targeting = { attack: false, card, faceUp: play.faceUp, defense: play.defense, keys, hot: null, declared: null }
+    for (const key of keys) this.opts.zones.setHighlight(key, 0.7)
+    if (!restart) this.lock()
+    this.opts.onTargeting?.(true, false)
+  }
+
+  /** Highlight the zones holding attackable monsters and wait for a click. */
+  beginAttack(card: Card, keys: string[]) {
+    const restart = this.targeting !== null
+    this.targeting = null
+    this.opts.zones.setAllHighlights(0)
+    this.targeting = { attack: true, card, faceUp: card.faceUp, defense: card.defense, keys, hot: null, declared: null }
+    for (const key of keys) this.opts.zones.setHighlight(key, 0.7)
+    if (!restart) this.lock()
+    this.opts.onTargeting?.(true, true)
+  }
+
+  /** Leave targeting without placing the card. */
+  cancelTargeting() {
+    this.cancelTarget()
+  }
+
+  private cancelTarget() {
+    this.endTarget()
+  }
+
+  private endTarget() {
+    if (!this.targeting) return
+    this.opts.zones.setAllHighlights(0)
+    const wasAttack = this.targeting.attack
+    this.targeting = null
+    if (wasAttack) this.opts.onDeclare?.(null, null, false)
+    this.opts.canvas.style.cursor = 'default'
+    this.unlock()
+    this.opts.onTargeting?.(false, false)
+  }
+
+  private setTargetHot(key: string | null) {
+    const t = this.targeting
+    if (!t || key === t.hot) return
+    if (t.hot) this.opts.zones.setHighlight(t.hot, t.hot === t.declared ? 1 : 0.7)
+    if (key) this.opts.zones.setHighlight(key, 1)
+    t.hot = key
+    this.opts.canvas.style.cursor = key ? 'pointer' : 'default'
+  }
+
+  private finishTarget() {
+    const t = this.targeting
+    if (!t) return
+    const key = this.zoneUnder()
+    const hit = key && t.keys.includes(key) ? key : null
+    const { card, faceUp, defense } = t
+    if (!hit) {
+      this.cancelTarget()
+      return
+    }
+    if (t.attack) {
+      if (t.declared !== hit) {
+        // Step 1: declare. The arrow shows who attacks what.
+        if (t.declared) this.opts.zones.setHighlight(t.declared, 0.7)
+        t.declared = hit
+        this.opts.zones.setHighlight(hit, 1)
+        this.opts.onDeclare?.(card, hit, true)
+        return
+      }
+      // Step 2: confirm.
+      const list = this.opts.board.cardsIn(hit)
+      const victim = list[list.length - 1] ?? null
+      this.endTarget()
+      this.opts.onAttack?.(card, victim)
+      return
+    }
+    this.endTarget()
+    this.opts.onPlace?.(card, hit, faceUp, defense)
+  }
+
   /** Board drag started outside the canvas. The pointer is already past the drag threshold. */
   beginExternalDrag(card: Card, e: PointerEvent) {
     this.setNdc(e)
@@ -223,6 +335,7 @@ export class HandInteraction implements Updatable {
 
   private onDown = (e: PointerEvent) => {
     if (e.button !== 0) return
+    if (this.targeting) return
     this.setNdc(e)
     const idx = this.handIndex()
     let drag: Drag | null = null
@@ -254,6 +367,11 @@ export class HandInteraction implements Updatable {
   }
 
   private onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && this.targeting) {
+      e.preventDefault()
+      this.cancelTarget()
+      return
+    }
     if ((e.key !== 'r' && e.key !== 'R') || e.repeat) return
     const tag = (e.target as HTMLElement).tagName
     if (tag === 'INPUT' || tag === 'TEXTAREA') return
@@ -284,6 +402,11 @@ export class HandInteraction implements Updatable {
 
   private onMove = (e: PointerEvent) => {
     this.setNdc(e)
+    if (this.targeting) {
+      const key = this.zoneUnder()
+      this.setTargetHot(key && this.targeting.keys.includes(key) ? key : null)
+      return
+    }
     const drag = this.drag
     if (drag) {
       if (!drag.active && Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) > DRAG_THRESHOLD) {
@@ -310,6 +433,12 @@ export class HandInteraction implements Updatable {
   }
 
   private onUp = (e: PointerEvent) => {
+    if (this.targeting) {
+      if (e.button !== 0) return
+      this.setNdc(e)
+      this.finishTarget()
+      return
+    }
     const drag = this.drag
     this.drag = null
     if (this.opts.canvas.hasPointerCapture(e.pointerId)) this.opts.canvas.releasePointerCapture(e.pointerId)
@@ -324,42 +453,21 @@ export class HandInteraction implements Updatable {
       return
     }
     if (e.button !== 0) return
-    // A click that never became a drag. A later hand raise shares this branch.
+    // A click that never became a drag.
     if (drag) {
-      this.noteClick(drag.card)
+      this.opts.onSelectCard?.(drag.card)
       return
     }
     const key = this.zoneUnder()
     if (key && isViewPile(key)) this.opts.onViewPile(key)
-    else if (!this.deckAt()) {
-      this.cancelClick()
-      this.opts.onSelectCard?.(null)
-    }
-  }
-
-  /** Single click selects after a short wait, so a double-click can activate instead. */
-  private noteClick(card: Card) {
-    const now = performance.now()
-    if (this.clickCard === card && now - this.clickAt < 320) {
-      this.cancelClick()
-      this.opts.onActivate?.(card)
-      return
-    }
-    this.clickCard = card
-    this.clickAt = now
-    window.clearTimeout(this.clickTimer)
-    this.clickTimer = window.setTimeout(() => {
-      this.clickCard = null
-      this.opts.onSelectCard?.(card)
-    }, 260)
-  }
-
-  private cancelClick() {
-    window.clearTimeout(this.clickTimer)
-    this.clickCard = null
+    else if (!this.deckAt()) this.opts.onSelectCard?.(null)
   }
 
   private onLeave = () => {
+    if (this.targeting) {
+      this.setTargetHot(null)
+      return
+    }
     if (this.drag || this.locked) return
     this.publishHover(null)
     this.setDeckHover(false)
@@ -393,6 +501,7 @@ export class HandInteraction implements Updatable {
     )
     zones.setAllHighlights(0.12)
     this.opts.canvas.style.cursor = 'grabbing'
+    this.opts.onDrag?.(true)
   }
 
   private updateDrag(drag: Drag) {
@@ -448,15 +557,16 @@ export class HandInteraction implements Updatable {
     if (drag.over === OWN_DECK) {
       onReturnToDeck(card)
     } else if (drag.over && !drag.over.endsWith(':deck:0')) {
-      board.place(card, drag.over)
+      board.place(card, drag.over, 0.28, { from: drag.fromHand ? null : drag.fromZone })
     } else if (!drag.over && this.ndc.y < HAND_DROP_NDC_Y) {
       hand.add(card, 0.35)
     } else if (drag.fromZone) {
-      board.place(card, drag.fromZone)
+      board.place(card, drag.fromZone, 0.28, { from: drag.fromZone })
     } else {
       hand.add(card, 0.35)
     }
     this.publishHover(null)
+    this.opts.onDrag?.(false)
     this.opts.onChange()
   }
 

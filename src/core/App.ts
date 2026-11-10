@@ -11,17 +11,21 @@ import { Particles } from '@/scene/Particles'
 import { CameraRig } from '@/scene/CameraRig'
 import { PostFX } from '@/scene/PostFX'
 import { Tweens } from '@/anim/Tweens'
-import { Sparkles } from '@/anim/Sparkles'
+import { LandingFx } from '@/anim/LandingFx'
+import { CardGlow } from '@/anim/CardGlow'
+import { AttackFx } from '@/anim/AttackFx'
+import { AttackArrow } from '@/anim/AttackArrow'
 import { BoardState } from '@/state/BoardState'
 import { Card } from '@/cards/Card'
 import { DeckPile } from '@/cards/DeckPile'
 import { Hand } from '@/cards/Hand'
 import { HandInteraction, type ContextTarget } from '@/interaction/HandInteraction'
-import { CardActions, type DeckPos } from '@/interaction/CardActions'
+import { attackTargetKeys, CardActions, isAttacker, type DeckPos } from '@/interaction/CardActions'
 import { ContextMenu } from '@/ui/ContextMenu'
 import { Hud } from '@/ui/Hud'
 import { CardDetail } from '@/ui/CardDetail'
 import { PileViewer } from '@/ui/PileViewer'
+import { ActionBar } from '@/ui/ActionBar'
 import { buildDemoDeck, loadDemoDeck, shuffle, type CardData } from '@/data/demoDeck'
 import { disposeCardArt, preloadCardArt } from '@/cards/CardArt'
 import { getZoneByKey } from '@/scene/ZoneLayout'
@@ -38,7 +42,9 @@ export class App {
   zones!: Zones
   lights!: Lights
   particles!: Particles
-  sparkles!: Sparkles
+  landing!: LandingFx
+  private attackFx!: AttackFx
+  private arrow!: AttackArrow
   fx!: PostFX
   disposed = false
   readonly tweens: Tweens
@@ -52,6 +58,9 @@ export class App {
   private hud?: Hud
   private detail?: CardDetail
   private viewer?: PileViewer
+  private actionBar?: ActionBar
+  private glow?: CardGlow
+  private hintDefault = ''
   private live = new Map<number, Card>()
   private past: Snap[] = []
   private lp1 = 8000
@@ -79,7 +88,11 @@ export class App {
     this.renderer.shadowMap.autoUpdate = false
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, q.pixelRatio))
 
-    this.loop = new Loop(() => this.fx.render(this.lastDt))
+    // Overlays are oriented here, only on frames that actually render.
+    this.loop = new Loop(() => {
+      for (const card of this.live.values()) card.billboard(this.rig.camera)
+      this.fx.render(this.lastDt)
+    })
     this.rig = new CameraRig(this.loop.invalidate)
     this.canvas = canvas
     this.tweens = new Tweens(this.loop.invalidate)
@@ -179,26 +192,6 @@ export class App {
     this.record()
     this.phase = i
     this.sync()
-  }
-
-  /** Hop the card and throw a sparkle, as if its effect resolved. */
-  private activate(card: Card) {
-    const mesh = card.mesh
-    const rest = mesh.position.clone()
-    const scale = mesh.scale.clone()
-    const lifted = rest.clone()
-    lifted.y += card.zoneKey ? 0.45 : 0.26
-    const popped = scale.clone().multiplyScalar(1.07)
-    this.tweens.animate(mesh, { position: lifted, scale: popped }, 0.14, {
-      onDone: () => {
-        this.tweens.animate(mesh, { position: rest, scale }, 0.34)
-      },
-    })
-    mesh.updateWorldMatrix(true, false)
-    const at = new Vector3()
-    mesh.getWorldPosition(at)
-    at.y += 0.15
-    this.sparkles.burst(at)
   }
 
   /** Hand the turn over: next turn, back to Draw, other player. */
@@ -304,7 +297,62 @@ export class App {
     this.hud?.setPhase(this.turn, PHASES[this.phase] ?? 'Draw', this.activePlayer)
     this.hud?.setUndoEnabled(this.past.length > 0)
     this.viewer?.refresh()
+    this.refreshShortcuts()
     this.loop.invalidate()
+  }
+
+  /** Swap the top hint while a summon, set, or activate is waiting for a zone. */
+  private setTargetHint(active: boolean, attack = false) {
+    const el = document.querySelector<HTMLElement>('.hint')
+    if (!el) return
+    if (!this.hintDefault) this.hintDefault = el.textContent ?? ''
+    const direct = attackTargetKeys(this.board).length === 0
+    const prompt = attack
+      ? direct
+        ? 'Waiting for a target · click an opposing zone for a direct attack · Esc to cancel'
+        : 'Waiting for a target · click a monster to attack · Esc to cancel'
+      : 'Choose a zone · Esc to cancel'
+    el.textContent = active ? prompt : this.hintDefault
+    el.classList.toggle('is-target', active)
+  }
+
+  /** Shortcut buttons and glow only for a selected hand card that isn't being dragged. */
+  private refreshShortcuts() {
+    const card = this.interaction?.pinnedCard ?? null
+    const dragging = this.interaction?.isDragging ?? false
+    const inHand = !!card && !dragging && this.hand.cards.includes(card)
+    this.actionBar?.setCard(inHand ? card : null)
+    this.glow?.set(inHand ? card : null)
+  }
+
+  /** Step 1 feedback: arrow to the declared zone and a confirm prompt. */
+  private onDeclare(attacker: Card | null, key: string | null, declared: boolean) {
+    const zone = key ? getZoneByKey(key) : undefined
+    if (attacker && zone && declared) {
+      const from = attacker.mesh.position
+      this.arrow.show(from, new Vector3(zone.x, from.y, zone.z))
+      this.setHintText('Click the target again to confirm the attack · Esc to cancel')
+    } else {
+      this.arrow.hide()
+    }
+  }
+
+  private setHintText(text: string) {
+    const el = document.querySelector<HTMLElement>('.hint')
+    if (el) el.textContent = text
+  }
+
+  private inBattle() {
+    return PHASES[this.phase] === 'Battle'
+  }
+
+  /** Visual only: no damage, no destruction. */
+  private declareAttack(card: Card) {
+    if (!this.inBattle() || !isAttacker(card)) return
+    // No monsters to hit: every opposing monster zone is a direct-attack target.
+    const hit = attackTargetKeys(this.board)
+    const keys = hit.length ? hit : Array.from({ length: 5 }, (_, i) => `p2:monster:${i}`)
+    this.interaction?.beginAttack(card, keys)
   }
 
   async init() {
@@ -338,14 +386,17 @@ export class App {
 
     this.particles = new Particles(q.particleCount)
     this.scene.add(this.particles.points)
-    this.sparkles = new Sparkles(this.scene, this.loop.invalidate)
+    this.landing = new LandingFx(this.scene, this.tweens)
 
     this.fx = new PostFX(r, this.scene, this.rig.camera, q)
 
     this.deckPile = new DeckPile('p1:deck:0', this.deckCards.length)
     const oppDeck = new DeckPile('p2:deck:0', 40)
     this.scene.add(this.deckPile.mesh, oppDeck.mesh)
-    this.board = new BoardState(this.tweens)
+    this.board = new BoardState(this.tweens, this.landing)
+    this.attackFx = new AttackFx(this.tweens, this.board, this.landing)
+    this.arrow = new AttackArrow(this.scene, this.loop.invalidate)
+    this.loop.add(this.arrow)
     this.interaction = new HandInteraction({
       canvas: this.canvas,
       camera: this.rig.camera,
@@ -363,7 +414,14 @@ export class App {
       onViewPile: (key) => this.viewer?.open(key),
       onHoverCard: (card) => this.detail?.hover(card),
       onSelectCard: (card) => this.detail?.pin(card),
-      onActivate: (card) => this.activate(card),
+      onDrag: () => this.refreshShortcuts(),
+      onPlace: (card, key, faceUp, defense) => this.actions.moveTo(card, key, faceUp, defense),
+      onAttack: (attacker, target) => this.attackFx.attack(attacker, target),
+      onDeclare: (attacker, key, declared) => this.onDeclare(attacker, key, declared),
+      onTargeting: (active, attack) => {
+        this.setTargetHint(active, attack)
+        this.actionBar?.setTargeting(active)
+      },
     })
     this.actions = new CardActions({
       scene: this.scene,
@@ -381,6 +439,12 @@ export class App {
       invalidate: this.loop.invalidate,
       commit: () => this.record(),
       onChange: () => this.sync(),
+      requestTarget: (card, play) => {
+        this.viewer?.close()
+        this.interaction?.beginTarget(card, play)
+      },
+      inBattle: () => this.inBattle(),
+      attack: (card) => this.declareAttack(card),
     })
 
     const ui = document.getElementById('ui') ?? document.body
@@ -394,7 +458,20 @@ export class App {
       onCoin: () => this.hud?.toast(Math.random() < 0.5 ? 'Heads' : 'Tails'),
     })
     const interaction = this.interaction
-    this.detail = new CardDetail(ui, (card) => interaction?.setPinned(card))
+    this.glow = new CardGlow()
+    this.loop.add(this.glow)
+    this.actionBar = new ActionBar(
+      ui,
+      (card, play) => this.actions.play(card, play),
+      () => interaction?.cancelTargeting(),
+      (card) => this.declareAttack(card),
+    )
+    this.detail = new CardDetail(ui, (card) => {
+      interaction?.setPinned(card)
+      this.refreshShortcuts()
+      // Selecting a field monster in battle starts the attack declaration.
+      if (card && this.inBattle() && isAttacker(card)) this.declareAttack(card)
+    })
     this.viewer = new PileViewer(ui, (key) => this.board.cardsIn(key), {
       onOpen: () => interaction?.lock(),
       onClose: () => interaction?.unlock(),
@@ -420,8 +497,7 @@ export class App {
     this.loop.add(this.rig)
     this.loop.add(this.tweens)
     this.loop.add(this.particles)
-    this.loop.add(this.sparkles)
-
+    this.loop.add(this.landing)
     window.addEventListener('resize', this.onResize)
     window.addEventListener('keydown', this.onKey)
     this.onResize()
@@ -470,8 +546,11 @@ export class App {
     this.menu.dispose()
     this.hud?.dispose()
     this.detail?.dispose()
+    this.actionBar?.dispose()
+    this.glow?.dispose()
+    this.arrow?.dispose()
     this.viewer?.dispose()
-    this.sparkles?.dispose()
+    this.landing?.dispose()
     disposeCardArt()
     this.debugDispose?.()
     this.fx?.dispose()

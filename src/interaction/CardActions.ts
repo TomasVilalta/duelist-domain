@@ -1,11 +1,103 @@
 import type { Scene } from 'three'
 import type { Card } from '@/cards/Card'
 import type { Hand } from '@/cards/Hand'
+import type { CardKind } from '@/data/demoDeck'
 import type { BoardState } from '@/state/BoardState'
 import type { MenuItem } from '@/ui/ContextMenu'
 import { getZoneByKey, type ZoneType } from '@/scene/ZoneLayout'
 
 export type DeckPos = 'top' | 'bottom' | 'shuffle'
+
+export type PlayZone = 'monster' | 'spell' | 'field'
+export type PlayIcon = 'summon' | 'set' | 'defense' | 'activate'
+
+/** A way to put a card onto the board. Shared by the context menu and the shortcut bar. */
+export interface PlayAction {
+  label: string
+  icon: PlayIcon
+  zone: PlayZone
+  faceUp: boolean
+  defense: boolean
+}
+
+/** Monster, spell, or trap. Falls back to the printed type line when `kind` is missing. */
+export function cardKind(card: Card): CardKind {
+  const kind = card.data.kind
+  if (kind === 'monster' || kind === 'spell' || kind === 'trap') return kind
+  const type = card.data.type?.toLowerCase() ?? ''
+  if (type.includes('trap')) return 'trap'
+  if (type.includes('spell')) return 'spell'
+  return 'monster'
+}
+
+export function isFieldSpell(card: Card): boolean {
+  if (cardKind(card) !== 'spell') return false
+  const race = card.data.race?.toLowerCase() ?? ''
+  const type = card.data.type?.toLowerCase() ?? ''
+  return race === 'field' || type.includes('field')
+}
+
+/** Most relevant plays for this card, in the order they should be offered. */
+export function primaryPlays(card: Card): PlayAction[] {
+  const kind = cardKind(card)
+  if (kind === 'monster') {
+    return [
+      { label: 'Summon', icon: 'summon', zone: 'monster', faceUp: true, defense: false },
+      { label: 'Set', icon: 'set', zone: 'monster', faceUp: false, defense: true },
+      { label: 'Summon in DEF', icon: 'defense', zone: 'monster', faceUp: true, defense: true },
+    ]
+  }
+  if (kind === 'trap') {
+    return [
+      { label: 'Set', icon: 'set', zone: 'spell', faceUp: false, defense: false },
+      { label: 'Activate', icon: 'activate', zone: 'spell', faceUp: true, defense: false },
+    ]
+  }
+  const zone: PlayZone = isFieldSpell(card) ? 'field' : 'spell'
+  return [
+    { label: 'Activate', icon: 'activate', zone, faceUp: true, defense: false },
+    { label: 'Set', icon: 'set', zone, faceUp: false, defense: false },
+  ]
+}
+
+/**
+ * Zones this play can land on. Empty ones when any are free; every zone of that
+ * row when they are all full, so the card can be stacked. Field spells only
+ * ever offer the field zone.
+ */
+export function targetZoneKeys(owner: 'p1' | 'p2', zone: PlayZone, isEmpty: (key: string) => boolean): string[] {
+  if (zone === 'field') return [`${owner}:field:0`]
+  const keys = Array.from({ length: 5 }, (_, i) => `${owner}:${zone}:${i}`)
+  const empty = keys.filter(isEmpty)
+  return empty.length > 0 ? empty : keys
+}
+
+/** Your monsters on the field. The extra monster zones are shared but count as yours for now. */
+export function isAttacker(card: Card): boolean {
+  const key = card.zoneKey ?? ''
+  return key.startsWith('p1:monster:') || key.startsWith('shared:emz:')
+}
+
+/** Opponent monster zones that hold a card. Empty means a direct attack. */
+export function attackTargetKeys(board: BoardState): string[] {
+  return Array.from({ length: 5 }, (_, i) => `p2:monster:${i}`).filter((key) => board.cardsIn(key).length > 0)
+}
+
+/** Plays that don't match the card's kind. Still allowed, listed last. */
+function otherPlays(card: Card): PlayAction[] {
+  const monster: PlayAction[] = [
+    { label: 'Summon', icon: 'summon', zone: 'monster', faceUp: true, defense: false },
+    { label: 'Summon in DEF', icon: 'defense', zone: 'monster', faceUp: true, defense: true },
+    { label: 'Set as monster', icon: 'set', zone: 'monster', faceUp: false, defense: true },
+  ]
+  const spellTrap: PlayAction[] = [
+    { label: 'Place in S/T zone', icon: 'activate', zone: 'spell', faceUp: true, defense: false },
+    { label: 'Set in S/T zone', icon: 'set', zone: 'spell', faceUp: false, defense: false },
+  ]
+  if (cardKind(card) === 'monster') return spellTrap
+  if (isFieldSpell(card)) return [...spellTrap, ...monster]
+  return monster
+}
 
 interface Deps {
   scene: Scene
@@ -17,6 +109,12 @@ interface Deps {
   /** Snapshot the board before a menu action. */
   commit: () => void
   onChange: () => void
+  /** Summon, set, or activate: the player picks the zone. */
+  requestTarget: (card: Card, action: PlayAction) => void
+  /** True during the Battle phase. */
+  inBattle: () => boolean
+  /** Pick a target, or attack directly when the opponent has no monsters. */
+  attack: (card: Card) => void
 }
 
 type Owner = 'p1' | 'p2'
@@ -33,12 +131,23 @@ export class CardActions {
     return card.zoneKey?.startsWith('p2') ? 'p2' : 'p1'
   }
 
-  private freeZone(type: 'monster' | 'spell', owner: Owner): string {
-    for (let i = 0; i < 5; i++) {
-      const key = `${owner}:${type}:${i}`
-      if (this.d.board.cardsIn(key).length === 0) return key
-    }
-    return `${owner}:${type}:0`
+  /** Ask the player to click a zone for this play. */
+  play(card: Card, action: PlayAction) {
+    this.d.requestTarget(card, action)
+  }
+
+  /** Primary plays, then off-type plays, each group closed by a separator. */
+  private playItems(card: Card): MenuItem[] {
+    const item = (play: PlayAction): MenuItem => ({
+      label: play.label,
+      action: () => this.play(card, play),
+    })
+    return [
+      ...primaryPlays(card).map(item),
+      { separator: true },
+      ...otherPlays(card).map(item),
+      { separator: true },
+    ]
   }
 
   /** Detach from the hand (if it's there) so the card can be placed in the world. */
@@ -51,10 +160,11 @@ export class CardActions {
 
   moveTo(card: Card, key: string, faceUp: boolean, defense: boolean) {
     this.d.commit()
+    const from = this.d.hand.cards.includes(card) ? null : card.zoneKey
     this.release(card)
     card.faceUp = faceUp
     card.defense = defense
-    this.d.board.place(card, key)
+    this.d.board.place(card, key, 0.28, { from })
     this.d.onChange()
   }
 
@@ -99,13 +209,7 @@ export class CardActions {
   handItems(card: Card): MenuItem[] {
     const own: Owner = 'p1'
     return [
-      { label: 'Summon ATK', action: () => this.moveTo(card, this.freeZone('monster', own), true, false) },
-      { label: 'Summon DEF (Face up)', action: () => this.moveTo(card, this.freeZone('monster', own), true, true) },
-      { label: 'Set DEF', action: () => this.moveTo(card, this.freeZone('monster', own), false, true) },
-      { separator: true },
-      { label: 'Place spell/trap face-up', action: () => this.moveTo(card, this.freeZone('spell', own), true, false) },
-      { label: 'Set spell/trap face-down', action: () => this.moveTo(card, this.freeZone('spell', own), false, false) },
-      { separator: true },
+      ...this.playItems(card),
       { label: 'Send to GY', action: () => this.moveTo(card, `${own}:gy:0`, true, false) },
       { label: 'Banish', action: () => this.moveTo(card, `${own}:banished:0`, true, false) },
       { label: 'Banish face-down', action: () => this.moveTo(card, `${own}:banished:0`, false, false) },
@@ -117,13 +221,7 @@ export class CardActions {
   pileItems(card: Card): MenuItem[] {
     const own: Owner = 'p1'
     return [
-      { label: 'Summon ATK', action: () => this.moveTo(card, this.freeZone('monster', own), true, false) },
-      { label: 'Summon DEF (Face up)', action: () => this.moveTo(card, this.freeZone('monster', own), true, true) },
-      { label: 'Set DEF', action: () => this.moveTo(card, this.freeZone('monster', own), false, true) },
-      { separator: true },
-      { label: 'Place spell/trap face-up', action: () => this.moveTo(card, this.freeZone('spell', own), true, false) },
-      { label: 'Set spell/trap face-down', action: () => this.moveTo(card, this.freeZone('spell', own), false, false) },
-      { separator: true },
+      ...this.playItems(card),
       { label: 'Add to hand', action: () => this.toHand(card) },
       { label: 'Send to GY', action: () => this.moveTo(card, `${own}:gy:0`, true, false) },
       { label: 'Banish', action: () => this.moveTo(card, `${own}:banished:0`, true, false) },
@@ -154,7 +252,18 @@ export class CardActions {
     const own = this.ownerOf(card)
     const isMonster = card.data.atk !== undefined
     const positions = this.positionItems(card)
+    const battle: MenuItem[] =
+      this.d.inBattle() && isAttacker(card)
+        ? [
+            {
+              label: attackTargetKeys(this.d.board).length ? 'Attack' : 'Direct attack',
+              action: () => this.d.attack(card),
+            },
+            { separator: true },
+          ]
+        : []
     return [
+      ...battle,
       ...positions,
       ...(positions.length ? [{ separator: true }] : []),
       { label: 'Send to GY', action: () => this.moveTo(card, `${own}:gy:0`, true, false) },
