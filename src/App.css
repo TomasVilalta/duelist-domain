@@ -79,7 +79,7 @@
   position: absolute;
   left: 50%;
   bottom: 17%;
-  z-index: 25;
+  z-index: 50;
   display: flex;
   gap: 22px;
   transform: translateX(-50%);
@@ -135,6 +135,16 @@
 .action-bar.kind-trap .action-btn i {
   border-color: rgba(255, 100, 180, 0.85);
   box-shadow: 0 0 12px rgba(255, 70, 160, 0.4);
+}
+.action-bar .action-btn.is-pendulum i {
+  border-color: transparent;
+  background:
+    radial-gradient(circle at 50% 38%, #1c4654, #0a1418 72%) padding-box,
+    linear-gradient(100deg, #ff8a32, #3ee0c8) border-box;
+  box-shadow: -5px 0 12px rgba(255, 138, 50, 0.4), 5px 0 12px rgba(62, 224, 200, 0.4);
+}
+.action-bar .action-btn.is-pendulum:hover i {
+  box-shadow: -5px 0 16px rgba(255, 138, 50, 0.7), 5px 0 16px rgba(62, 224, 200, 0.7);
 }
 .action-bar.is-cancel .action-btn i {
   border-color: rgba(255, 150, 120, 0.9);
@@ -307,6 +317,9 @@
   cursor: grab;
   touch-action: none;
   user-select: none;
+}
+.pile-card.is-selected {
+  box-shadow: inset 0 0 0 3px #9ff;
 }
 .pile-card img {
   width: 100%;

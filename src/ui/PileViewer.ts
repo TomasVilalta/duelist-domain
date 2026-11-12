@@ -2,7 +2,8 @@ import type { Card } from '@/cards/Card'
 
 const NAMES: Record<string, string> = { gy: 'GY', banished: 'Banished', extra: 'Extra Deck' }
 const BACK_URL = `${import.meta.env.BASE_URL}cards/back.png`
-const DRAG_THRESHOLD = 5
+/** Pointer travel, in card-widths, before a pile card becomes a board drag. */
+const DRAG_CARD_WIDTHS = 1.5
 
 function title(key: string, n: number): string {
   const [owner, type] = key.split(':')
@@ -15,6 +16,7 @@ interface Hooks {
   onClose?: () => void
   onCardContext?: (card: Card, clientX: number, clientY: number) => void
   onDragOut?: (card: Card, pointerEvent: PointerEvent) => void
+  onCardClick?: (card: Card) => void
   onCardHover?: (card: Card | null) => void
 }
 
@@ -24,6 +26,8 @@ interface Gesture {
   x: number
   y: number
   el: HTMLElement
+  /** Distance in pixels the pointer must travel before the card leaves the pile. */
+  distance: number
   sent: boolean
 }
 
@@ -34,6 +38,8 @@ export class PileViewer {
   private grid: HTMLDivElement
   private titleEl: HTMLDivElement
   private key: string | null = null
+  private selected: Card | null = null
+  private cells = new Map<Card, HTMLElement>()
   private gesture: Gesture | null = null
   private getCards: (key: string) => Card[]
   private hooks: Hooks
@@ -92,6 +98,7 @@ export class PileViewer {
     if (this.key === null) return
     this.key = null
     this.clearGesture()
+    this.cells.clear()
     this.hooks.onCardHover?.(null)
     this.root.hidden = true
     this.grid.replaceChildren()
@@ -102,6 +109,12 @@ export class PileViewer {
     if (this.key) this.render()
   }
 
+  /** Highlight the clicked pile card. `null` clears it. */
+  setSelected(card: Card | null) {
+    this.selected = card
+    this.markSelected()
+  }
+
   private render() {
     const key = this.key
     if (!key) return
@@ -110,6 +123,7 @@ export class PileViewer {
     this.titleEl.textContent = title(key, cards.length)
     this.root.hidden = false
     this.grid.replaceChildren()
+    this.cells.clear()
     if (cards.length === 0) {
       const empty = document.createElement('div')
       empty.className = 'pile-empty'
@@ -119,11 +133,13 @@ export class PileViewer {
       for (const card of cards) this.grid.appendChild(this.cardCell(card))
     }
     this.grid.scrollTop = scroll
+    this.markSelected()
   }
 
   private cardCell(card: Card): HTMLElement {
     const cell = document.createElement('div')
     cell.className = 'pile-card'
+    this.cells.set(card, cell)
     const image = card.data.image
     if (!card.faceUp || image) {
       const img = document.createElement('img')
@@ -169,7 +185,8 @@ export class PileViewer {
     if (e.button !== 0 || this.gesture) return
     e.preventDefault()
     el.setPointerCapture(e.pointerId)
-    this.gesture = { card, pointerId: e.pointerId, x: e.clientX, y: e.clientY, el, sent: false }
+    const distance = el.getBoundingClientRect().width * DRAG_CARD_WIDTHS
+    this.gesture = { card, pointerId: e.pointerId, x: e.clientX, y: e.clientY, el, distance, sent: false }
     el.addEventListener('pointermove', this.onCardMove)
     el.addEventListener('pointerup', this.onCardUp)
     el.addEventListener('pointercancel', this.onCardUp)
@@ -178,10 +195,7 @@ export class PileViewer {
   private onCardMove = (e: PointerEvent) => {
     const g = this.gesture
     if (!g || e.pointerId !== g.pointerId || g.sent) return
-    if (Math.hypot(e.clientX - g.x, e.clientY - g.y) <= DRAG_THRESHOLD) return
-    const r = this.dialog.getBoundingClientRect()
-    const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom
-    if (inside) return
+    if (Math.hypot(e.clientX - g.x, e.clientY - g.y) < g.distance) return
     g.sent = true
     if (g.el.hasPointerCapture(e.pointerId)) g.el.releasePointerCapture(e.pointerId)
     this.hooks.onDragOut?.(g.card, e)
@@ -190,7 +204,14 @@ export class PileViewer {
   private onCardUp = (e: PointerEvent) => {
     const g = this.gesture
     if (!g || e.pointerId !== g.pointerId) return
+    const click = !g.sent
+    const card = g.card
     this.clearGesture()
+    if (click) this.hooks.onCardClick?.(card)
+  }
+
+  private markSelected() {
+    for (const [card, el] of this.cells) el.classList.toggle('is-selected', card === this.selected)
   }
 
   private clearGesture() {

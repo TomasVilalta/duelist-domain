@@ -8,8 +8,8 @@ import { getZoneByKey, type ZoneType } from '@/scene/ZoneLayout'
 
 export type DeckPos = 'top' | 'bottom' | 'shuffle'
 
-export type PlayZone = 'monster' | 'spell' | 'field'
-export type PlayIcon = 'summon' | 'set' | 'defense' | 'activate'
+export type PlayZone = 'monster' | 'spell' | 'field' | 'pendulum'
+export type PlayIcon = 'summon' | 'set' | 'defense' | 'activate' | 'pendulum' | 'hand'
 
 /** A way to put a card onto the board. Shared by the context menu and the shortcut bar. */
 export interface PlayAction {
@@ -37,15 +37,23 @@ export function isFieldSpell(card: Card): boolean {
   return race === 'field' || type.includes('field')
 }
 
+export function isPendulum(card: Card): boolean {
+  return card.data.type?.toLowerCase().includes('pendulum') ?? false
+}
+
 /** Most relevant plays for this card, in the order they should be offered. */
 export function primaryPlays(card: Card): PlayAction[] {
   const kind = cardKind(card)
   if (kind === 'monster') {
-    return [
+    const plays: PlayAction[] = [
       { label: 'Summon', icon: 'summon', zone: 'monster', faceUp: true, defense: false },
       { label: 'Set', icon: 'set', zone: 'monster', faceUp: false, defense: true },
       { label: 'Summon in DEF', icon: 'defense', zone: 'monster', faceUp: true, defense: true },
     ]
+    if (isPendulum(card)) {
+      plays.unshift({ label: 'Activate', icon: 'pendulum', zone: 'pendulum', faceUp: true, defense: false })
+    }
+    return plays
   }
   if (kind === 'trap') {
     return [
@@ -67,6 +75,11 @@ export function primaryPlays(card: Card): PlayAction[] {
  */
 export function targetZoneKeys(owner: 'p1' | 'p2', zone: PlayZone, isEmpty: (key: string) => boolean): string[] {
   if (zone === 'field') return [`${owner}:field:0`]
+  if (zone === 'pendulum') {
+    const keys = [`${owner}:spell:0`, `${owner}:spell:4`]
+    const empty = keys.filter(isEmpty)
+    return empty.length > 0 ? empty : keys
+  }
   const keys = Array.from({ length: 5 }, (_, i) => `${owner}:${zone}:${i}`)
   const empty = keys.filter(isEmpty)
   return empty.length > 0 ? empty : keys
@@ -109,6 +122,8 @@ interface Deps {
   /** Snapshot the board before a menu action. */
   commit: () => void
   onChange: () => void
+  /** A card action finished: summon, move, position change, and the like. */
+  onAction: () => void
   /** Summon, set, or activate: the player picks the zone. */
   requestTarget: (card: Card, action: PlayAction) => void
   /** True during the Battle phase. */
@@ -165,17 +180,20 @@ export class CardActions {
     card.faceUp = faceUp
     card.defense = defense
     this.d.board.place(card, key, 0.28, { from })
+    this.d.onAction()
     this.d.onChange()
   }
 
   flip(card: Card) {
     card.faceUp = !card.faceUp
     this.relayout(card)
+    this.d.onAction()
   }
 
   togglePosition(card: Card) {
     card.defense = !card.defense
     this.relayout(card)
+    this.d.onAction()
   }
 
   setPosition(card: Card, faceUp: boolean, defense: boolean) {
@@ -183,6 +201,7 @@ export class CardActions {
     card.faceUp = faceUp
     card.defense = defense
     this.relayout(card)
+    this.d.onAction()
     this.d.onChange()
   }
 
@@ -194,6 +213,7 @@ export class CardActions {
     this.d.commit()
     this.d.board.remove(card)
     this.d.hand.add(card, 0.4)
+    this.d.onAction()
     this.d.onChange()
   }
 
@@ -201,6 +221,7 @@ export class CardActions {
     this.d.commit()
     card.setCounters(card.counters + delta)
     this.d.invalidate()
+    this.d.onAction()
     this.d.onChange()
   }
 
@@ -242,7 +263,7 @@ export class CardActions {
     if (type === 'monster' || type === 'emz') {
       return [opt('To ATK', true, false), opt('To DEF (Face up)', true, true), opt('To DEF (Face down)', false, true)]
     }
-    if (type === 'spell' || type === 'field' || type === 'banished' || type === 'extra') {
+    if (type === 'spell' || type === 'field' || type === 'banished') {
       return [opt('Face up', true, false), opt('Face down', false, false)]
     }
     return []

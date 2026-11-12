@@ -6,11 +6,20 @@ const ICONS: Record<PlayIcon, string> = {
   set: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16.2 8.4a4.8 4.8 0 1 0 .6 5.2" /><path d="M16.4 5.2v3.6h-3.5" /></svg>`,
   defense: `<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.8" y="8.2" width="16.4" height="7.6" rx="1.3" /></svg>`,
   activate: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.2v4.6M12 16.2v4.6M3.2 12h4.6M16.2 12h4.6M6.1 6.1l3.2 3.2M14.7 14.7l3.2 3.2M17.9 6.1l-3.2 3.2M9.3 14.7 6.1 17.9" /></svg>`,
+  pendulum: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.6v8" /><circle cx="12" cy="14.8" r="3.2" /><path d="M4.6 6.4c1.9 2.5 4.4 3.8 7.4 3.8s5.5-1.3 7.4-3.8" /></svg>`,
+  hand: `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 11V6.8a1.3 1.3 0 0 1 2.6 0V11" /><path d="M10.6 10.2V5.6a1.3 1.3 0 0 1 2.6 0v5.2" /><path d="M13.2 10.4V7.2a1.3 1.3 0 0 1 2.6 0V14c0 3-1.6 5.2-4.6 5.2h-1.2C7.4 19.2 6 18 5.2 16.2L3.6 13" /></svg>`,
 }
 
 const ATTACK_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 4.5 10 14M19.5 4.5h-4M19.5 4.5v4M7.5 12.5l4 4M9.5 14.5l-4.8 4.8" /></svg>`
 
 const CANCEL_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17" /></svg>`
+
+/** An extra shortcut beside the card's usual plays, such as To Hand from the graveyard. */
+export interface BarExtra {
+  label: string
+  icon: PlayIcon
+  run: (card: Card) => void
+}
 
 /** Round shortcut buttons for the selected hand card, centered above the hand. */
 export class ActionBar {
@@ -18,6 +27,7 @@ export class ActionBar {
   private card: Card | null = null
   /** Set when the card is a field monster that can attack; true means a direct attack. */
   private direct: boolean | null = null
+  private extra: BarExtra[] = []
   private targeting = false
 
   constructor(
@@ -32,9 +42,10 @@ export class ActionBar {
     parent.appendChild(this.root)
   }
 
-  /** Show plays for a hand card, or hide the bar. A pending zone choice keeps Cancel up. */
-  setCard(card: Card | null) {
+  /** Show plays for a selected card, or hide the bar. A pending zone choice keeps Cancel up. */
+  setCard(card: Card | null, extra: BarExtra[] = []) {
     this.card = card
+    this.extra = extra
     this.direct = null
     this.paint()
   }
@@ -79,7 +90,7 @@ export class ActionBar {
       this.root.replaceChildren()
       return
     }
-    const id = `${card.data.uid}:${this.direct ?? 'hand'}`
+    const id = `${card.data.uid}:${this.direct ?? 'hand'}:${this.extra.map((e) => e.label).join(',')}`
     const same = this.root.dataset.card === id && !this.root.hidden
     this.root.hidden = false
     this.root.className = this.direct === null ? `action-bar kind-${cardKind(card)}` : 'action-bar is-attack'
@@ -101,11 +112,22 @@ export class ActionBar {
     for (const play of primaryPlays(card)) {
       const btn = document.createElement('button')
       btn.type = 'button'
-      btn.className = 'action-btn'
+      btn.className = play.icon === 'pendulum' ? 'action-btn is-pendulum' : 'action-btn'
       btn.innerHTML = `<i>${ICONS[play.icon]}</i><span>${play.label}</span>`
       btn.addEventListener('click', (e) => {
         e.stopPropagation()
         if (this.card) this.onPlay(this.card, play)
+      })
+      this.root.appendChild(btn)
+    }
+    for (const extra of this.extra) {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'action-btn'
+      btn.innerHTML = `<i>${ICONS[extra.icon]}</i><span>${extra.label}</span>`
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        if (this.card) extra.run(this.card)
       })
       this.root.appendChild(btn)
     }

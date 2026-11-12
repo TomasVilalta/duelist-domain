@@ -1,14 +1,24 @@
 import { ConeGeometry, Group, Mesh, MeshBasicMaterial, PlaneGeometry, Scene, Vector3 } from 'three'
 import type { Updatable } from '@/core/Loop'
+import { PLAY_Y } from '@/scene/Board'
 
-const Y = 0.16
+/** Just above the ruin floor, so the arrow is not buried in the tiles. */
+const Y = PLAY_Y + 0.02
 
 /** Flat arrow on the board from the attacker to its declared target. Pulses while shown. */
 export class AttackArrow implements Updatable {
   private readonly group = new Group()
   private readonly shaft: Mesh
   private readonly head: Mesh
-  private readonly mat = new MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, toneMapped: false })
+  private readonly mat = new MeshBasicMaterial({
+    color: 0xffffff,
+    transparent: true,
+    depthWrite: false,
+    toneMapped: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -2,
+  })
   private readonly shaftGeo = new PlaneGeometry(1, 0.1)
   private readonly headGeo = new ConeGeometry(0.2, 0.42, 20)
   private t = 0

@@ -27,6 +27,12 @@ const NAMES = [
   'Trap Hole',
   'Solemn Judgment',
   'Magic Cylinder',
+  'Blue-Eyes Ultimate Dragon',
+  'Stardust Dragon',
+  'Number 39: Utopia',
+  'Decode Talker',
+  'Odd-Eyes Pendulum Dragon',
+  'Timegazer Magician',
 ]
 
 const url = `https://db.ygoprodeck.com/api/v7/cardinfo.php?name=${encodeURIComponent(NAMES.join('|'))}`
@@ -58,8 +64,9 @@ for (const card of json.data) {
     name: card.name,
     kind,
     atk: card.atk,
-    def: card.def,
-    level: card.level,
+    def: card.def ?? undefined,
+    level: card.level || undefined,
+    scale: card.scale ?? undefined,
     desc: card.desc,
     type: card.type,
     race: card.race,

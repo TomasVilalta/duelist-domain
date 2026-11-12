@@ -7,6 +7,8 @@ export interface CardData {
   atk?: number
   def?: number
   level?: number
+  /** Pendulum scale, when this is a Pendulum monster. */
+  scale?: number
   /** YGOPRODeck passcode. Copies of a card share one image. */
   passcode?: number
   /** Local card image, when this came from the catalog. */
@@ -42,7 +44,51 @@ const TEMPLATES: Template[] = [
   { name: 'Rune Seal', kind: 'trap' },
   { name: 'Bramble Wall', kind: 'trap' },
   { name: 'Final Gambit', kind: 'trap' },
+  { name: 'Ember Chimera', kind: 'monster', atk: 2500, def: 2000, level: 8, type: 'Fusion Monster' },
+  { name: 'Gale Wyrm', kind: 'monster', atk: 2500, def: 2000, level: 8, type: 'Synchro Monster' },
+  { name: 'Ruin Number', kind: 'monster', atk: 2500, def: 2000, level: 4, type: 'XYZ Monster' },
+  { name: 'Thorn Linker', kind: 'monster', atk: 2300, type: 'Link Monster' },
+  { name: 'Dusk Pendulum', kind: 'monster', atk: 1500, def: 1500, level: 4, scale: 8, type: 'Pendulum Effect Monster' },
+  { name: 'Glade Pendulum', kind: 'monster', atk: 1800, def: 800, level: 5, scale: 1, type: 'Pendulum Effect Monster' },
 ]
+
+const EXTRA_KINDS = ['Fusion', 'Synchro', 'XYZ', 'Link'] as const
+
+/** Fusion, Synchro, XYZ, or Link. Pendulum monsters in the main deck do not match. */
+export function extraDeckKind(type?: string): (typeof EXTRA_KINDS)[number] | null {
+  if (!type) return null
+  const lower = type.toLowerCase()
+  return EXTRA_KINDS.find((kind) => lower.includes(kind.toLowerCase())) ?? null
+}
+
+export interface DemoDeck {
+  /** Shuffled into the Deck. Two copies of each card, one of each Pendulum. */
+  main: CardData[]
+  /** One Fusion, Synchro, XYZ, and Link monster. */
+  extra: CardData[]
+}
+
+function copiesFor(type?: string): { n: number; extra: boolean } {
+  if (extraDeckKind(type)) return { n: 1, extra: true }
+  if (type?.includes('Pendulum')) return { n: 1, extra: false }
+  return { n: 2, extra: false }
+}
+
+function deal(templates: Template[]): DemoDeck {
+  const main: CardData[] = []
+  const extra: CardData[] = []
+  let uid = 1
+  for (const t of templates) {
+    const { n, extra: toExtra } = copiesFor(t.type)
+    for (let i = 0; i < n; i++) {
+      const card = { ...t, uid: uid++ }
+      if (toExtra) extra.push(card)
+      else main.push(card)
+    }
+  }
+  extra.sort((a, b) => EXTRA_KINDS.indexOf(extraDeckKind(a.type)!) - EXTRA_KINDS.indexOf(extraDeckKind(b.type)!))
+  return { main, extra }
+}
 
 interface CatalogCard {
   passcode: number
@@ -51,6 +97,7 @@ interface CatalogCard {
   atk?: number
   def?: number
   level?: number
+  scale?: number
   type?: string
   race?: string
   attribute?: string
@@ -59,42 +106,34 @@ interface CatalogCard {
   file: string
 }
 
-/** 40 cards from the local YGOPRODeck catalog: each card twice. */
-export async function loadDemoDeck(): Promise<CardData[]> {
+/** Main deck plus one extra-deck monster of each type, from the local catalog. */
+export async function loadDemoDeck(): Promise<DemoDeck> {
   const res = await fetch(`${import.meta.env.BASE_URL}cards/catalog.json`)
   if (!res.ok) throw new Error(`card catalog ${res.status}`)
   const list = (await res.json()) as CatalogCard[]
-  const deck: CardData[] = []
-  let uid = 1
   const base = import.meta.env.BASE_URL
-  for (let copy = 0; copy < 2; copy++) {
-    for (const c of list) {
-      deck.push({
-        uid: uid++,
-        name: c.name,
-        kind: c.kind,
-        atk: c.atk,
-        def: c.def,
-        level: c.level,
-        passcode: c.passcode,
-        image: `${base}cards/${c.file}`,
-        type: c.type,
-        race: c.race,
-        attribute: c.attribute,
-        archetype: c.archetype,
-        desc: c.desc,
-      })
-    }
-  }
-  return deck
+  return deal(
+    list.map((c) => ({
+      name: c.name,
+      kind: c.kind,
+      atk: c.atk,
+      def: c.def ?? undefined,
+      level: c.level || undefined,
+      scale: c.scale ?? undefined,
+      passcode: c.passcode,
+      image: `${base}cards/${c.file}`,
+      type: c.type,
+      race: c.race,
+      attribute: c.attribute,
+      archetype: c.archetype,
+      desc: c.desc,
+    })),
+  )
 }
 
-/** 40 cards: each template twice, with unique ids. */
-export function buildDemoDeck(): CardData[] {
-  const deck: CardData[] = []
-  let uid = 1
-  for (let copy = 0; copy < 2; copy++) for (const t of TEMPLATES) deck.push({ ...t, uid: uid++ })
-  return deck
+/** Placeholder main deck and extra deck, used when the catalog cannot be loaded. */
+export function buildDemoDeck(): DemoDeck {
+  return deal(TEMPLATES)
 }
 
 export function shuffle<T>(arr: T[]): T[] {

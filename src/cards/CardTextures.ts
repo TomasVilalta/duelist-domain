@@ -142,6 +142,7 @@ export function makeStatsTexture(atk: number, def: number): Texture {
 }
 
 const levelCache = new Map<number, Texture>()
+const scaleCache = new Map<number, Texture>()
 
 /** Star icon and level number. One shared texture per level; never dispose it. */
 export function makeLevelTexture(level: number): Texture {
@@ -176,6 +177,40 @@ function drawLevelTexture(level: number): Texture {
   }
   paint()
   if (!starImg.complete) starImg.addEventListener('load', paint, { once: true })
+  return tex
+}
+
+/** Pendulum glyph and scale number. One shared texture per scale; never dispose it. */
+export function makeScaleTexture(scale: number): Texture {
+  const cached = scaleCache.get(scale)
+  if (cached) return cached
+  const c = document.createElement('canvas')
+  c.width = 256
+  c.height = 128
+  const ctx = c.getContext('2d')!
+  ctx.strokeStyle = '#f6efe0'
+  ctx.lineWidth = 10
+  ctx.lineCap = 'round'
+  ctx.beginPath()
+  ctx.moveTo(64, 16)
+  ctx.lineTo(64, 62)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(64, 84, 26, 0, Math.PI * 2)
+  ctx.stroke()
+  const text = String(scale)
+  ctx.font = 'bold 96px system-ui, sans-serif'
+  ctx.textAlign = 'left'
+  ctx.textBaseline = 'middle'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = 16
+  ctx.strokeStyle = 'rgba(10, 8, 4, 0.95)'
+  ctx.strokeText(text, 132, 68)
+  ctx.fillStyle = '#f6efe0'
+  ctx.fillText(text, 132, 68)
+  const tex = toTexture(c)
+  tex.userData.shared = true
+  scaleCache.set(scale, tex)
   return tex
 }
 

@@ -1,5 +1,19 @@
 [
   {
+    "passcode": 23995348,
+    "name": "Blue-Eyes Ultimate Dragon",
+    "kind": "monster",
+    "atk": 4500,
+    "def": 3800,
+    "level": 12,
+    "desc": "\"Blue-Eyes White Dragon\" + \"Blue-Eyes White Dragon\" + \"Blue-Eyes White Dragon\"",
+    "type": "Fusion Monster",
+    "race": "Dragon",
+    "attribute": "LIGHT",
+    "archetype": "Blue-Eyes",
+    "file": "23995348.jpg"
+  },
+  {
     "passcode": 89631139,
     "name": "Blue-Eyes White Dragon",
     "kind": "monster",
@@ -47,7 +61,7 @@
     "file": "53129443.jpg"
   },
   {
-    "passcode": 46986421,
+    "passcode": 46986419,
     "name": "Dark Magician",
     "kind": "monster",
     "atk": 2500,
@@ -58,7 +72,7 @@
     "race": "Spellcaster",
     "attribute": "DARK",
     "archetype": "Dark Magician",
-    "file": "46986421.jpg"
+    "file": "46986419.jpg"
   },
   {
     "passcode": 38033125,
@@ -75,7 +89,19 @@
     "file": "38033125.jpg"
   },
   {
-    "passcode": 6368038,
+    "passcode": 1861629,
+    "name": "Decode Talker",
+    "kind": "monster",
+    "atk": 2300,
+    "desc": "2+ Effect Monsters\r\nGains 500 ATK for each monster it points to. When your opponent activates a card or effect that targets a card(s) you control (Quick Effect): You can Tribute 1 monster this card points to; negate the activation, and if you do, destroy that card.",
+    "type": "Link Monster",
+    "race": "Cyberse",
+    "attribute": "DARK",
+    "archetype": "Code Talker",
+    "file": "1861629.jpg"
+  },
+  {
+    "passcode": 6368039,
     "name": "Gaia The Fierce Knight",
     "kind": "monster",
     "atk": 2300,
@@ -86,7 +112,7 @@
     "race": "Warrior",
     "attribute": "EARTH",
     "archetype": "Gaia The Fierce Knight",
-    "file": "6368038.jpg"
+    "file": "6368039.jpg"
   },
   {
     "passcode": 40640059,
@@ -156,6 +182,35 @@
     "file": "15025844.jpg"
   },
   {
+    "passcode": 84013238,
+    "name": "Number 39: Utopia",
+    "kind": "monster",
+    "atk": 2500,
+    "def": 2000,
+    "level": 4,
+    "desc": "2 Level 4 monsters\r\nWhen a monster declares an attack: You can detach 1 material from this card; negate the attack. If this card is targeted for an attack, while it has no material: Destroy this card.",
+    "type": "XYZ Monster",
+    "race": "Warrior",
+    "attribute": "LIGHT",
+    "archetype": "Utopia",
+    "file": "84013238.jpg"
+  },
+  {
+    "passcode": 16178683,
+    "name": "Odd-Eyes Pendulum Dragon",
+    "kind": "monster",
+    "atk": 2500,
+    "def": 2000,
+    "level": 7,
+    "scale": 4,
+    "desc": "[ Pendulum Effect ] \nYou can reduce the battle damage you take from an attack involving a Pendulum Monster you control to 0. During your End Phase: You can destroy this card, and if you do, add 1 Pendulum Monster with 1500 or less ATK from your Deck to your hand. You can only use each Pendulum Effect of \"Odd-Eyes Pendulum Dragon\" once per turn.\n\n[ Monster Effect ] \nIf this card battles an opponent's monster, any battle damage this card inflicts to your opponent is doubled.",
+    "type": "Pendulum Effect Monster",
+    "race": "Dragon",
+    "attribute": "DARK",
+    "archetype": "-Eyes Dragon",
+    "file": "16178683.jpg"
+  },
+  {
     "passcode": 55144522,
     "name": "Pot of Greed",
     "kind": "spell",
@@ -175,7 +230,7 @@
     "file": "12580477.jpg"
   },
   {
-    "passcode": 74677426,
+    "passcode": 74677424,
     "name": "Red-Eyes Black Dragon",
     "kind": "monster",
     "atk": 2400,
@@ -186,7 +241,7 @@
     "race": "Dragon",
     "attribute": "DARK",
     "archetype": "Red-Eyes",
-    "file": "74677426.jpg"
+    "file": "74677424.jpg"
   },
   {
     "passcode": 41420027,
@@ -199,7 +254,21 @@
     "file": "41420027.jpg"
   },
   {
-    "passcode": 70781053,
+    "passcode": 44508095,
+    "name": "Stardust Dragon",
+    "kind": "monster",
+    "atk": 2500,
+    "def": 2000,
+    "level": 8,
+    "desc": "1 Tuner + 1+ non-Tuner monsters\r\nWhen a card or effect is activated that would destroy a card(s) on the field (Quick Effect): You can Tribute this card; negate the activation, and if you do, destroy it. During the End Phase, if this effect was activated this turn (and was not negated): You can Special Summon this card from your GY.",
+    "type": "Synchro Monster",
+    "race": "Dragon",
+    "attribute": "WIND",
+    "archetype": "Stardust",
+    "file": "44508095.jpg"
+  },
+  {
+    "passcode": 70781054,
     "name": "Summoned Skull",
     "kind": "monster",
     "atk": 2500,
@@ -210,7 +279,7 @@
     "race": "Fiend",
     "attribute": "DARK",
     "archetype": "Archfiend",
-    "file": "70781053.jpg"
+    "file": "70781054.jpg"
   },
   {
     "passcode": 72302403,
@@ -220,6 +289,21 @@
     "type": "Spell Card",
     "race": "Normal",
     "file": "72302403.jpg"
+  },
+  {
+    "passcode": 20409757,
+    "name": "Timegazer Magician",
+    "kind": "monster",
+    "atk": 1200,
+    "def": 600,
+    "level": 3,
+    "scale": 8,
+    "desc": "[ Pendulum Effect ] \nYou must control no monsters to activate this card. If a Pendulum Monster you control battles, your opponent cannot activate Trap Cards until the end of the Damage Step. Unless you have a \"Magician\" card or \"Odd-Eyes\" card in your other Pendulum Zone, this card's Pendulum Scale becomes 4.\n\n[ Monster Effect ] \nEach turn, the first card(s) in your Pendulum Zone that would be destroyed by an opponent's card effect, is not destroyed.",
+    "type": "Pendulum Effect Monster",
+    "race": "Spellcaster",
+    "attribute": "DARK",
+    "archetype": "Magician",
+    "file": "20409757.jpg"
   },
   {
     "passcode": 4206964,

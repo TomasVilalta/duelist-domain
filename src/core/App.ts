@@ -26,10 +26,10 @@ import { ContextMenu } from '@/ui/ContextMenu'
 import { Hud } from '@/ui/Hud'
 import { CardDetail } from '@/ui/CardDetail'
 import { PileViewer } from '@/ui/PileViewer'
-import { ActionBar } from '@/ui/ActionBar'
+import { ActionBar, type BarExtra } from '@/ui/ActionBar'
 import { buildDemoDeck, loadDemoDeck, shuffle, type CardData } from '@/data/demoDeck'
 import { disposeCardArt, preloadCardArt } from '@/cards/CardArt'
-import { getZoneByKey } from '@/scene/ZoneLayout'
+import { getZoneByKey, isViewPile } from '@/scene/ZoneLayout'
 import { copyData, type CardSnap, type Snap } from '@/state/Snapshot'
 
 const PHASES = ['Draw', 'Standby', 'Main 1', 'Battle', 'Main 2', 'End']
@@ -158,6 +158,7 @@ export class App {
     else this.deckCards.push(card.data)
     if (pos === 'shuffle') shuffle(this.deckCards)
     this.deckPile.setCount(this.deckCards.length)
+    this.deselect()
     this.sync()
   }
 
@@ -317,12 +318,23 @@ export class App {
     el.classList.toggle('is-target', active)
   }
 
-  /** Shortcut buttons and glow only for a selected hand card that isn't being dragged. */
+  /** Drop the pinned card after a summon, move, or other card action. */
+  private deselect() {
+    this.detail?.pin(null)
+  }
+
+  /** Shortcut buttons for a selected hand card, or a card clicked in a pile. */
   private refreshShortcuts() {
     const card = this.interaction?.pinnedCard ?? null
     const dragging = this.interaction?.isDragging ?? false
     const inHand = !!card && !dragging && this.hand.cards.includes(card)
-    this.actionBar?.setCard(inHand ? card : null)
+    const inPile = !!card && !dragging && !!card.zoneKey && isViewPile(card.zoneKey)
+    const extra: BarExtra[] =
+      inPile && card.zoneKey?.includes(':gy:')
+        ? [{ label: 'To Hand', icon: 'hand', run: (c) => this.actions.toHand(c) }]
+        : []
+    this.actionBar?.setCard(inHand || inPile ? card : null, extra)
+    this.viewer?.setSelected(inPile ? card : null)
     this.glow?.set(inHand ? card : null)
   }
 
@@ -356,6 +368,20 @@ export class App {
     this.interaction?.beginAttack(card, keys)
   }
 
+  /** Face-down extra deck: one Fusion, Synchro, XYZ, and Link monster. */
+  private seedExtra(cards: CardData[]) {
+    const zone = getZoneByKey('p1:extra:0')
+    if (!zone) return
+    for (const data of cards) {
+      const card = new Card(data)
+      card.faceUp = false
+      card.mesh.position.set(zone.x, 0.4, zone.z)
+      this.scene.add(card.mesh)
+      this.live.set(card.data.uid, card)
+      this.board.place(card, zone.key, 0)
+    }
+  }
+
   async init() {
     const q = QUALITY[this.quality]
     const r = this.renderer
@@ -365,7 +391,7 @@ export class App {
         return buildDemoDeck()
       })
       .then(async (deck) => {
-        await preloadCardArt(deck, r)
+        await preloadCardArt([...deck.main, ...deck.extra], r)
         return deck
       })
     const ruinsPromise = loadLayout()
@@ -382,7 +408,7 @@ export class App {
       setupEnvironment(this.scene, r),
     ])
     if (this.disposed) return
-    this.deckCards = shuffle(deck)
+    this.deckCards = shuffle(deck.main)
 
     this.scene.add(createBoard(stone, grass), ruins)
 
@@ -402,6 +428,7 @@ export class App {
     const oppDeck = new DeckPile('p2:deck:0', 40)
     this.scene.add(this.deckPile.mesh, oppDeck.mesh)
     this.board = new BoardState(this.tweens, this.landing)
+    this.seedExtra(deck.extra)
     this.attackFx = new AttackFx(this.tweens, this.board, this.landing)
     this.arrow = new AttackArrow(this.scene, this.loop.invalidate)
     this.loop.add(this.arrow)
@@ -423,8 +450,12 @@ export class App {
       onHoverCard: (card) => this.detail?.hover(card),
       onSelectCard: (card) => this.detail?.pin(card),
       onDrag: () => this.refreshShortcuts(),
+      onAction: () => this.deselect(),
       onPlace: (card, key, faceUp, defense) => this.actions.moveTo(card, key, faceUp, defense),
-      onAttack: (attacker, target) => this.attackFx.attack(attacker, target),
+      onAttack: (attacker, target) => {
+        this.attackFx.attack(attacker, target)
+        this.deselect()
+      },
       onDeclare: (attacker, key, declared) => this.onDeclare(attacker, key, declared),
       onTargeting: (active, attack) => {
         this.setTargetHint(active, attack)
@@ -441,12 +472,14 @@ export class App {
         this.menu.openStats(p.x, p.y, card.data.atk ?? 0, card.data.def ?? 0, (a, d) => {
           this.record()
           card.setStats(a, d)
+          this.deselect()
           this.sync()
         })
       },
       invalidate: this.loop.invalidate,
       commit: () => this.record(),
       onChange: () => this.sync(),
+      onAction: () => this.deselect(),
       requestTarget: (card, play) => {
         this.viewer?.close()
         this.interaction?.beginTarget(card, play)
@@ -481,8 +514,14 @@ export class App {
       if (card && this.inBattle() && isAttacker(card)) this.declareAttack(card)
     })
     this.viewer = new PileViewer(ui, (key) => this.board.cardsIn(key), {
-      onOpen: () => interaction?.lock(),
-      onClose: () => interaction?.unlock(),
+      onOpen: () => {
+        interaction?.lock()
+        this.deselect()
+      },
+      onClose: () => {
+        interaction?.unlock()
+        this.deselect()
+      },
       onCardContext: (card, x, y) => {
         this.menuPos = { x, y }
         this.menu.open(x, y, card.data.name, this.actions.pileItems(card))
@@ -495,6 +534,7 @@ export class App {
         }
       },
       onCardHover: (card) => this.detail?.hover(card, true),
+      onCardClick: (card) => this.detail?.pin(card),
     })
     this.hud.setPhase(this.turn, PHASES[0], this.activePlayer)
 

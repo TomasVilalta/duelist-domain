@@ -10,6 +10,8 @@ const STACK_STEP = 0.012
 const BASE_Y = 0.36
 const HOVER_LIFT = 0.12
 const HOVER_SCALE = 1.06
+/** How far each of the two cards under the top sticks out, to the card's left. */
+const MATERIAL_PEEK = 0.09
 
 /** Orientation of a card lying on the board. Face-down is a half-turn around the card's upright axis. */
 export function boardQuat(faceUp: boolean, defense: boolean, rotY: number): Quaternion {
@@ -42,6 +44,7 @@ export class BoardState {
   }
 
   clear() {
+    for (const list of this.zones.values()) for (const card of list) card.covered = false
     for (const card of this.busy) this.landingFx?.cancel(card)
     this.busy.clear()
     this.hovered = null
@@ -76,6 +79,7 @@ export class BoardState {
     const list = this.zones.get(key)
     if (list) list.splice(list.indexOf(card), 1)
     card.zoneKey = null
+    card.covered = false
     this.layoutZone(key, 0.15)
   }
 
@@ -111,17 +115,32 @@ export class BoardState {
     const zone = getZoneByKey(key)
     const list = this.zones.get(key)
     if (!zone || !list) return
+    // Extra deck: Pendulum monsters stay face-up on top. Everything else is face-down.
+    if (zone.id.type === 'extra') {
+      for (const card of list) {
+        card.faceUp = card.data.type?.toLowerCase().includes('pendulum') ?? false
+        card.defense = false
+      }
+    }
+    // Extra deck and banished: face-up cards stay above every face-down card.
+    if (zone.id.type === 'extra' || zone.id.type === 'banished') {
+      list.sort((a, b) => Number(a.faceUp) - Number(b.faceUp))
+    }
+    const count = list.length
+    const pile = (zone.id.type === 'monster' || zone.id.type === 'emz') && count >= 2
     list.forEach((card, i) => {
       const fit = legalOrientation(zone.id.type, card.faceUp, card.defense)
       card.faceUp = fit.faceUp
       card.defense = fit.defense
+      // Only the top monster shows ATK, level, and counters. Cards under it are materials.
+      card.covered = pile && i < count - 1
       if (this.busy.has(card)) return
       const hov = card === this.hovered
       const s = hov ? HOVER_SCALE : 1
       this.tweens.animate(
         card.mesh,
         {
-          position: new Vector3(zone.x, BASE_Y + i * STACK_STEP + (hov ? HOVER_LIFT : 0), zone.z),
+          position: this.slotPosition(zone, i, count, hov ? HOVER_LIFT : 0),
           quaternion: boardQuat(card.faceUp, card.defense, zone.rotY),
           scale: new Vector3(s, s, s),
         },
@@ -157,8 +176,21 @@ export class BoardState {
     if (!zone || !list) return null
     const i = Math.max(0, list.indexOf(card))
     return {
-      position: new Vector3(zone.x, BASE_Y + i * STACK_STEP, zone.z),
+      position: this.slotPosition(zone, i, list.length, 0),
       quaternion: boardQuat(card.faceUp, card.defense, zone.rotY),
     }
+  }
+
+  /**
+   * Monster zones with two or more cards are an Xyz pile: the top card stays
+   * centered. Only the two cards directly under it step out to the left.
+   */
+  private slotPosition(zone: { id: { type: string }; x: number; z: number; rotY: number }, index: number, count: number, lift: number): Vector3 {
+    const depth = (zone.id.type === 'monster' || zone.id.type === 'emz') && count >= 2 ? count - 1 - index : 0
+    const along = depth === 1 || depth === 2 ? depth * MATERIAL_PEEK : 0
+    const c = Math.cos(zone.rotY)
+    const s = Math.sin(zone.rotY)
+    // Card-local -X, after the zone yaw. Left of the card, clear of the ATK strip.
+    return new Vector3(zone.x - c * along, BASE_Y + index * STACK_STEP + lift, zone.z + s * along)
   }
 }

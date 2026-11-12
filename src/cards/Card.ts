@@ -17,7 +17,7 @@ import { CARD_H, CARD_W } from '@/config'
 import type { CardData } from '@/data/demoDeck'
 import { getZoneByKey } from '@/scene/ZoneLayout'
 import { cardArt, cardBack } from './CardArt'
-import { makeBadgeTexture, makeFaceTexture, makeLevelTexture, makeSleeveTexture, makeStatsTexture } from './CardTextures'
+import { makeBadgeTexture, makeFaceTexture, makeLevelTexture, makeScaleTexture, makeSleeveTexture, makeStatsTexture } from './CardTextures'
 
 function roundedShape(w: number, h: number, r: number): Shape {
   const x = -w / 2
@@ -95,8 +95,15 @@ export class Card {
   faceUp = true
   defense = false
   counters = 0
+  /** Under another card in a monster zone. Stats, level, scale, and counters stay hidden. */
+  covered = false
   private badge: Mesh | null = null
   private overlay: Mesh[] = []
+  /** ATK / DEF strip and level badge. Shown in the hand and in monster zones. */
+  private stats: Mesh | null = null
+  private levelMark: Mesh | null = null
+  /** Pendulum scale. Shown face-up in a spell/trap zone. */
+  private scaleMark: Mesh | null = null
 
   constructor(data: CardData) {
     this.data = data
@@ -124,7 +131,7 @@ export class Card {
     mat.needsUpdate = true
   }
 
-  /** Level badge and ATK / DEF strip, only for monsters. */
+  /** Level badge and ATK / DEF strip for monsters, plus a pendulum scale badge. */
   private clearOverlay() {
     for (const m of this.overlay) {
       const mat = m.material as MeshBasicMaterial
@@ -133,36 +140,51 @@ export class Card {
       this.mesh.remove(m)
     }
     this.overlay = []
+    this.stats = null
+    this.levelMark = null
+    this.scaleMark = null
+  }
+
+  private makeOverlay(map: Texture, geo: PlaneGeometry): Mesh {
+    const mat = new MeshBasicMaterial({ map, transparent: true, depthTest: false, depthWrite: false })
+    mat.color.setScalar(0.85)
+    mat.fog = false
+    const m = new Mesh(geo, mat)
+    m.renderOrder = 10
+    this.mesh.add(m)
+    this.overlay.push(m)
+    return m
   }
 
   private buildOverlay() {
     this.clearOverlay()
-    const { atk, def, level } = this.data
-    if (atk === undefined) return
-    const make = (map: Texture, geo: PlaneGeometry) => {
-      const mat = new MeshBasicMaterial({ map, transparent: true, depthTest: false, depthWrite: false })
-      mat.color.setScalar(0.85)
-      mat.fog = false
-      const m = new Mesh(geo, mat)
-      m.renderOrder = 10
-      this.mesh.add(m)
-      this.overlay.push(m)
+    const { atk, def, level, scale } = this.data
+    if (atk !== undefined) {
+      this.stats = this.makeOverlay(makeStatsTexture(atk, def ?? 0), STRIP_GEO)
+      if (level) this.levelMark = this.makeOverlay(makeLevelTexture(level), LEVEL_GEO)
     }
-    make(makeStatsTexture(atk, def ?? 0), STRIP_GEO)
-    if (level) make(makeLevelTexture(level), LEVEL_GEO)
+    if (scale != null) this.scaleMark = this.makeOverlay(makeScaleTexture(scale), LEVEL_GEO)
   }
 
   /**
-   * Keep the overlay facing the camera. The strip sits under the card as seen
-   * on screen, the level badge at its lower right. Hidden for face-down cards
-   * and anything outside the hand or a monster zone.
+   * Keep the overlay facing the camera. ATK and level sit on hand cards and
+   * monster zones. The pendulum scale sits under a face-up card in a spell/trap zone.
    */
   billboard(camera: Object3D) {
+    if (this.covered) {
+      for (const m of this.overlay) m.visible = false
+      if (this.badge) this.badge.visible = false
+      return
+    }
+    if (this.badge) this.badge.visible = true
     if (this.overlay.length === 0) return
     const type = this.zoneKey ? getZoneByKey(this.zoneKey)?.id.type : undefined
-    const show = this.faceUp && (!this.zoneKey || type === 'monster' || type === 'emz')
-    for (const m of this.overlay) m.visible = show
-    if (!show) return
+    const monsterSpot = this.faceUp && (!this.zoneKey || type === 'monster' || type === 'emz')
+    const spellSpot = this.faceUp && type === 'spell'
+    if (this.stats) this.stats.visible = monsterSpot
+    if (this.levelMark) this.levelMark.visible = monsterSpot
+    if (this.scaleMark) this.scaleMark.visible = spellSpot
+    if (!monsterSpot && !spellSpot) return
     const mesh = this.mesh
     mesh.updateWorldMatrix(true, false)
     mesh.getWorldPosition(P)
@@ -182,9 +204,15 @@ export class Card {
     }
     const k = PS.x
     LQ.copy(PQ).invert().multiply(CQ)
-    const [strip, level] = this.overlay
-    this.place(strip, P, RIGHT, DOWN, 0, maxD + STRIP_W * (96 / 512) * 0.5 * k - 0.03 * k)
-    if (level) this.place(level, P, RIGHT, DOWN, maxR - LEVEL_W * 0.42 * k, maxD - LEVEL_W * 0.2 * k)
+    if (monsterSpot && this.stats) {
+      this.place(this.stats, P, RIGHT, DOWN, 0, maxD + STRIP_W * (96 / 512) * 0.5 * k - 0.03 * k)
+    }
+    if (monsterSpot && this.levelMark) {
+      this.place(this.levelMark, P, RIGHT, DOWN, maxR - LEVEL_W * 0.42 * k, maxD - LEVEL_W * 0.2 * k)
+    }
+    if (spellSpot && this.scaleMark) {
+      this.place(this.scaleMark, P, RIGHT, DOWN, 0, maxD + LEVEL_W * 0.28 * k)
+    }
   }
 
   private place(m: Mesh, p: Vector3, right: Vector3, down: Vector3, dx: number, dy: number) {

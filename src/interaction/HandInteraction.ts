@@ -5,7 +5,7 @@ import type { Hand } from '@/cards/Hand'
 import type { Updatable } from '@/core/Loop'
 import { boardQuat, type BoardState } from '@/state/BoardState'
 import type { Zones } from '@/scene/Zones'
-import { targetZoneKeys, type PlayAction } from '@/interaction/CardActions'
+import { targetZoneKeys, isPendulum, type PlayAction } from '@/interaction/CardActions'
 import { getZoneByKey, isViewPile, legalOrientation, zoneAt, zonePoses, ZONES } from '@/scene/ZoneLayout'
 import { CARD_H } from '@/config'
 
@@ -33,6 +33,8 @@ interface Options {
   onSelectCard?: (card: Card | null) => void
   /** A board drag started or ended. */
   onDrag?: (active: boolean) => void
+  /** A drag dropped the card somewhere new, or changed its pose. */
+  onAction?: () => void
   /** Player confirmed a summon, set, or activate by clicking a zone. */
   onPlace?: (card: Card, key: string, faceUp: boolean, defense: boolean) => void
   /** Player picked a monster to attack. */
@@ -488,7 +490,13 @@ export class HandInteraction implements Updatable {
       card.faceUp = true
       card.defense = false
     } else {
+      const from = drag.fromZone ?? ''
+      const reveal = !card.faceUp && (from.includes(':extra:') || from.includes(':banished:'))
       board.remove(card)
+      if (reveal) {
+        card.faceUp = true
+        card.defense = false
+      }
     }
     drag.faceUp = card.faceUp
     drag.defense = card.defense
@@ -526,6 +534,10 @@ export class HandInteraction implements Updatable {
       this.applyPose(drag, { faceUp: drag.faceUp, defense: drag.defense }, 0)
       return
     }
+    if (zone.id.type === 'extra') {
+      this.applyPose(drag, { faceUp: isPendulum(drag.card), defense: false }, zone.rotY)
+      return
+    }
     const poses = zonePoses(zone.id.type)
     const card = drag.card
     const kept = poses.find((p) => p.faceUp === card.faceUp && p.defense === card.defense)
@@ -534,7 +546,7 @@ export class HandInteraction implements Updatable {
 
   private cyclePose(drag: Drag) {
     const zone = drag.over && !drag.over.endsWith(':deck:0') ? getZoneByKey(drag.over) : undefined
-    if (!zone) return
+    if (!zone || zone.id.type === 'extra') return
     const poses = zonePoses(zone.id.type)
     if (poses.length < 2) return
     const card = drag.card
@@ -554,11 +566,15 @@ export class HandInteraction implements Updatable {
     zones.setAllHighlights(0)
     this.opts.canvas.style.cursor = 'default'
 
+    const poseChanged = card.faceUp !== drag.faceUp || card.defense !== drag.defense
+    let acted = false
     if (drag.over === OWN_DECK) {
       onReturnToDeck(card)
     } else if (drag.over && !drag.over.endsWith(':deck:0')) {
+      acted = drag.over !== drag.fromZone || poseChanged
       board.place(card, drag.over, 0.28, { from: drag.fromHand ? null : drag.fromZone })
     } else if (!drag.over && this.ndc.y < HAND_DROP_NDC_Y) {
+      acted = !drag.fromHand
       hand.add(card, 0.35)
     } else if (drag.fromZone) {
       board.place(card, drag.fromZone, 0.28, { from: drag.fromZone })
@@ -568,6 +584,7 @@ export class HandInteraction implements Updatable {
     this.publishHover(null)
     this.opts.onDrag?.(false)
     this.opts.onChange()
+    if (acted) this.opts.onAction?.()
   }
 
   /** Raise the card under the pointer, or the pinned card when the pointer is elsewhere. */

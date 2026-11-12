@@ -29,6 +29,7 @@ export function copyData(d: CardData): CardData {
     atk: d.atk,
     def: d.def,
     level: d.level,
+    scale: d.scale,
     passcode: d.passcode,
     image: d.image,
     type: d.type,
