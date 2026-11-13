@@ -1,6 +1,4 @@
-import type { Card } from '@/cards/Card'
-
-const NAMES: Record<string, string> = { gy: 'GY', banished: 'Banished', extra: 'Extra Deck' }
+const NAMES: Record<string, string> = { gy: 'GY', banished: 'Banished', extra: 'Extra Deck', deck: 'Deck' }
 const BACK_URL = `${import.meta.env.BASE_URL}cards/back.png`
 /** Pointer travel, in card-widths, before a pile card becomes a board drag. */
 const DRAG_CARD_WIDTHS = 1.5
@@ -11,17 +9,25 @@ function title(key: string, n: number): string {
   return `${who} · ${NAMES[type] ?? type} (${n})`
 }
 
+/** One card in a pile dialog. Deck entries have no mesh until an action takes them. */
+export interface PileView {
+  uid: number
+  name: string
+  image?: string
+  faceUp: boolean
+}
+
 interface Hooks {
   onOpen?: () => void
-  onClose?: () => void
-  onCardContext?: (card: Card, clientX: number, clientY: number) => void
-  onDragOut?: (card: Card, pointerEvent: PointerEvent) => void
-  onCardClick?: (card: Card) => void
-  onCardHover?: (card: Card | null) => void
+  onClose?: (key: string) => void
+  onCardContext?: (card: PileView, clientX: number, clientY: number) => void
+  onDragOut?: (card: PileView, pointerEvent: PointerEvent) => void
+  onCardClick?: (card: PileView) => void
+  onCardHover?: (card: PileView | null) => void
 }
 
 interface Gesture {
-  card: Card
+  card: PileView
   pointerId: number
   x: number
   y: number
@@ -38,13 +44,13 @@ export class PileViewer {
   private grid: HTMLDivElement
   private titleEl: HTMLDivElement
   private key: string | null = null
-  private selected: Card | null = null
-  private cells = new Map<Card, HTMLElement>()
+  private selected: number | null = null
+  private cells = new Map<number, HTMLElement>()
   private gesture: Gesture | null = null
-  private getCards: (key: string) => Card[]
+  private getCards: (key: string) => PileView[]
   private hooks: Hooks
 
-  constructor(parent: HTMLElement, getCards: (key: string) => Card[], hooks: Hooks = {}) {
+  constructor(parent: HTMLElement, getCards: (key: string) => PileView[], hooks: Hooks = {}) {
     this.getCards = getCards
     this.hooks = hooks
 
@@ -95,14 +101,15 @@ export class PileViewer {
   }
 
   close = () => {
-    if (this.key === null) return
+    const key = this.key
+    if (key === null) return
     this.key = null
     this.clearGesture()
     this.cells.clear()
     this.hooks.onCardHover?.(null)
     this.root.hidden = true
     this.grid.replaceChildren()
-    this.hooks.onClose?.()
+    this.hooks.onClose?.(key)
   }
 
   refresh() {
@@ -110,8 +117,8 @@ export class PileViewer {
   }
 
   /** Highlight the clicked pile card. `null` clears it. */
-  setSelected(card: Card | null) {
-    this.selected = card
+  setSelected(uid: number | null) {
+    this.selected = uid
     this.markSelected()
   }
 
@@ -136,15 +143,15 @@ export class PileViewer {
     this.markSelected()
   }
 
-  private cardCell(card: Card): HTMLElement {
+  private cardCell(card: PileView): HTMLElement {
     const cell = document.createElement('div')
     cell.className = 'pile-card'
-    this.cells.set(card, cell)
-    const image = card.data.image
+    this.cells.set(card.uid, cell)
+    const image = card.image
     if (!card.faceUp || image) {
       const img = document.createElement('img')
       img.draggable = false
-      img.alt = card.faceUp ? card.data.name : `${card.data.name} (face-down)`
+      img.alt = card.faceUp ? card.name : `${card.name} (face-down)`
       img.src = card.faceUp && image ? image : BACK_URL
       cell.appendChild(img)
       if (!card.faceUp) {
@@ -164,7 +171,7 @@ export class PileViewer {
     } else {
       const tile = document.createElement('div')
       tile.className = 'pile-fallback'
-      tile.textContent = card.data.name
+      tile.textContent = card.name
       cell.appendChild(tile)
     }
     cell.addEventListener('contextmenu', (e) => {
@@ -181,7 +188,7 @@ export class PileViewer {
     return cell
   }
 
-  private onCardDown(e: PointerEvent, card: Card, el: HTMLElement) {
+  private onCardDown(e: PointerEvent, card: PileView, el: HTMLElement) {
     if (e.button !== 0 || this.gesture) return
     e.preventDefault()
     el.setPointerCapture(e.pointerId)
@@ -211,7 +218,7 @@ export class PileViewer {
   }
 
   private markSelected() {
-    for (const [card, el] of this.cells) el.classList.toggle('is-selected', card === this.selected)
+    for (const [uid, el] of this.cells) el.classList.toggle('is-selected', uid === this.selected)
   }
 
   private clearGesture() {

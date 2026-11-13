@@ -1,7 +1,7 @@
 import type { Scene } from 'three'
 import type { Card } from '@/cards/Card'
 import type { Hand } from '@/cards/Hand'
-import type { CardKind } from '@/data/demoDeck'
+import type { CardData, CardKind } from '@/data/demoDeck'
 import type { BoardState } from '@/state/BoardState'
 import type { MenuItem } from '@/ui/ContextMenu'
 import { getZoneByKey, type ZoneType } from '@/scene/ZoneLayout'
@@ -20,8 +20,11 @@ export interface PlayAction {
   defense: boolean
 }
 
+/** Anything that carries printed card data. A live `Card` satisfies this. */
+type CardInfo = { data: CardData }
+
 /** Monster, spell, or trap. Falls back to the printed type line when `kind` is missing. */
-export function cardKind(card: Card): CardKind {
+export function cardKind(card: CardInfo): CardKind {
   const kind = card.data.kind
   if (kind === 'monster' || kind === 'spell' || kind === 'trap') return kind
   const type = card.data.type?.toLowerCase() ?? ''
@@ -30,19 +33,19 @@ export function cardKind(card: Card): CardKind {
   return 'monster'
 }
 
-export function isFieldSpell(card: Card): boolean {
+export function isFieldSpell(card: CardInfo): boolean {
   if (cardKind(card) !== 'spell') return false
   const race = card.data.race?.toLowerCase() ?? ''
   const type = card.data.type?.toLowerCase() ?? ''
   return race === 'field' || type.includes('field')
 }
 
-export function isPendulum(card: Card): boolean {
+export function isPendulum(card: CardInfo): boolean {
   return card.data.type?.toLowerCase().includes('pendulum') ?? false
 }
 
 /** Most relevant plays for this card, in the order they should be offered. */
-export function primaryPlays(card: Card): PlayAction[] {
+export function primaryPlays(card: CardInfo): PlayAction[] {
   const kind = cardKind(card)
   if (kind === 'monster') {
     const plays: PlayAction[] = [
@@ -97,7 +100,7 @@ export function attackTargetKeys(board: BoardState): string[] {
 }
 
 /** Plays that don't match the card's kind. Still allowed, listed last. */
-function otherPlays(card: Card): PlayAction[] {
+function otherPlays(card: CardInfo): PlayAction[] {
   const monster: PlayAction[] = [
     { label: 'Summon', icon: 'summon', zone: 'monster', faceUp: true, defense: false },
     { label: 'Summon in DEF', icon: 'defense', zone: 'monster', faceUp: true, defense: true },
@@ -250,6 +253,37 @@ export class CardActions {
       { label: 'Return to deck (top)', action: () => this.d.returnToDeck(card, 'top') },
       { label: 'Return to deck (bottom)', action: () => this.d.returnToDeck(card, 'bottom') },
       { label: 'Shuffle into deck', action: () => this.d.returnToDeck(card, 'shuffle') },
+    ]
+  }
+
+  /**
+   * Graveyard menu for a card that is still data in the deck.
+   * `pull(true)` closes the dialog before the card is taken, so a shuffle snapshot
+   * still contains it. Immediate moves pass false and take the card in place.
+   */
+  deckItems(data: CardData, pull: (closeFirst: boolean) => Card | null): MenuItem[] {
+    const own: Owner = 'p1'
+    const play = (action: PlayAction) => () => {
+      const card = pull(true)
+      if (card) this.play(card, action)
+    }
+    const act = (fn: (card: Card) => void) => () => {
+      const card = pull(false)
+      if (card) fn(card)
+    }
+    const info = { data }
+    return [
+      ...primaryPlays(info).map((action) => ({ label: action.label, action: play(action) })),
+      { separator: true },
+      ...otherPlays(info).map((action) => ({ label: action.label, action: play(action) })),
+      { separator: true },
+      { label: 'Add to hand', action: act((card) => this.toHand(card)) },
+      { label: 'Send to GY', action: act((card) => this.moveTo(card, `${own}:gy:0`, true, false)) },
+      { label: 'Banish', action: act((card) => this.moveTo(card, `${own}:banished:0`, true, false)) },
+      { label: 'Banish face-down', action: act((card) => this.moveTo(card, `${own}:banished:0`, false, false)) },
+      { label: 'Return to deck (top)', action: act((card) => this.d.returnToDeck(card, 'top')) },
+      { label: 'Return to deck (bottom)', action: act((card) => this.d.returnToDeck(card, 'bottom')) },
+      { label: 'Shuffle into deck', action: act((card) => this.d.returnToDeck(card, 'shuffle')) },
     ]
   }
 

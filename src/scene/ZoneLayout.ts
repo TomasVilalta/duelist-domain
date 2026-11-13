@@ -59,9 +59,9 @@ export function legalOrientation(type: ZoneType, faceUp: boolean, defense: boole
   return poses.find((p) => p.faceUp === faceUp && p.defense === defense) ?? poses.find((p) => p.faceUp === faceUp) ?? poses[0]
 }
 
-/** GY, banished and extra deck open the pile viewer. The deck itself does not. */
+/** GY, banished, extra deck, and your deck open the pile viewer. */
 export function isViewPile(key: string): boolean {
-  return key.includes(':gy:') || key.includes(':banished:') || key.includes(':extra:')
+  return key.includes(':gy:') || key.includes(':banished:') || key.includes(':extra:') || key === 'p1:deck:0'
 }
 
 export function zoneKey(id: ZoneId): string {

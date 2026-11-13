@@ -1,4 +1,5 @@
 import type { Card } from '@/cards/Card'
+import type { CardData } from '@/data/demoDeck'
 import { cardKind, primaryPlays, type PlayAction, type PlayIcon } from '@/interaction/CardActions'
 
 const ICONS: Record<PlayIcon, string> = {
@@ -21,6 +22,13 @@ export interface BarExtra {
   run: (card: Card) => void
 }
 
+/** Same shortcut, for a deck card that is not a live mesh until the button is pressed. */
+export interface DeckExtra {
+  label: string
+  icon: PlayIcon
+  run: () => void
+}
+
 /** Round shortcut buttons for the selected hand card, centered above the hand. */
 export class ActionBar {
   private readonly root: HTMLDivElement
@@ -28,6 +36,7 @@ export class ActionBar {
   /** Set when the card is a field monster that can attack; true means a direct attack. */
   private direct: boolean | null = null
   private extra: BarExtra[] = []
+  private deck: { data: CardData; onPlay: (play: PlayAction) => void; extra: DeckExtra[] } | null = null
   private targeting = false
 
   constructor(
@@ -46,13 +55,24 @@ export class ActionBar {
   setCard(card: Card | null, extra: BarExtra[] = []) {
     this.card = card
     this.extra = extra
+    this.deck = null
     this.direct = null
+    this.paint()
+  }
+
+  /** Plays for a selected deck card. The card stays in the deck until a button runs. */
+  setFromData(data: CardData | null, onPlay: (play: PlayAction) => void, extra: DeckExtra[] = []) {
+    this.card = null
+    this.extra = []
+    this.direct = null
+    this.deck = data ? { data, onPlay, extra } : null
     this.paint()
   }
 
   /** Show a single Attack button for a field monster during battle. */
   setAttacker(card: Card, direct: boolean) {
     this.card = card
+    this.deck = null
     this.direct = direct
     this.paint()
   }
@@ -80,6 +100,39 @@ export class ActionBar {
         this.onCancel()
       })
       this.root.appendChild(btn)
+      return
+    }
+    const deck = this.deck
+    if (deck) {
+      const id = `deck:${deck.data.uid}:${deck.extra.map((e) => e.label).join(',')}`
+      const same = this.root.dataset.card === id && !this.root.hidden
+      this.root.hidden = false
+      this.root.className = `action-bar kind-${cardKind(deck)}`
+      this.root.dataset.card = id
+      if (same) return
+      this.root.replaceChildren()
+      for (const play of primaryPlays(deck)) {
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = play.icon === 'pendulum' ? 'action-btn is-pendulum' : 'action-btn'
+        btn.innerHTML = `<i>${ICONS[play.icon]}</i><span>${play.label}</span>`
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation()
+          this.deck?.onPlay(play)
+        })
+        this.root.appendChild(btn)
+      }
+      for (const extra of deck.extra) {
+        const btn = document.createElement('button')
+        btn.type = 'button'
+        btn.className = 'action-btn'
+        btn.innerHTML = `<i>${ICONS[extra.icon]}</i><span>${extra.label}</span>`
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation()
+          extra.run()
+        })
+        this.root.appendChild(btn)
+      }
       return
     }
     const card = this.card

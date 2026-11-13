@@ -18,7 +18,6 @@ interface Options {
   board: BoardState
   tweens: Tweens
   zones: Zones
-  onDeckClick: () => void
   /** Card dropped on your own deck zone. */
   onReturnToDeck: (card: Card) => void
   /** `above` anchors the menu over the point instead of below the cursor. */
@@ -302,18 +301,31 @@ export class HandInteraction implements Updatable {
     this.opts.onPlace?.(card, hit, faceUp, defense)
   }
 
-  /** Board drag started outside the canvas. The pointer is already past the drag threshold. */
-  beginExternalDrag(card: Card, e: PointerEvent) {
+  /**
+   * Board drag started outside the canvas. The pointer is already past the drag threshold.
+   * `fromZone` overrides the card's zone (a deck card has none). `commit` snapshots first.
+   */
+  beginExternalDrag(card: Card, e: PointerEvent, fromZone: string | null = card.zoneKey, commit = true) {
     this.setNdc(e)
-    const drag = this.newDrag(card, false, card.zoneKey, e)
+    const drag = this.newDrag(card, false, fromZone, e)
     this.drag = drag
     try {
       this.opts.canvas.setPointerCapture(e.pointerId)
     } catch {
       // The dialog then closes, so later moves still hit the canvas.
     }
-    this.startDrag(drag)
+    this.startDrag(drag, commit)
     this.updateDrag(drag)
+  }
+
+  /** Drop an in-progress drag without moving the card. Undo restores the board. */
+  cancelDrag() {
+    const active = this.drag?.active ?? false
+    this.drag = null
+    if (!active) return
+    this.opts.zones.setAllHighlights(0)
+    this.opts.canvas.style.cursor = 'default'
+    this.opts.onDrag?.(false)
   }
 
   private zoneUnder(): string | null {
@@ -346,7 +358,6 @@ export class HandInteraction implements Updatable {
     } else {
       const card = this.boardCardAt()
       if (card) drag = this.newDrag(card, false, card.zoneKey, e)
-      else if (this.deckAt()) this.opts.onDeckClick()
     }
     if (drag) {
       this.drag = drag
@@ -460,9 +471,13 @@ export class HandInteraction implements Updatable {
       this.opts.onSelectCard?.(drag.card)
       return
     }
+    if (this.deckAt()) {
+      this.opts.onViewPile(OWN_DECK)
+      return
+    }
     const key = this.zoneUnder()
     if (key && isViewPile(key)) this.opts.onViewPile(key)
-    else if (!this.deckAt()) this.opts.onSelectCard?.(null)
+    else this.opts.onSelectCard?.(null)
   }
 
   private onLeave = () => {
@@ -477,11 +492,11 @@ export class HandInteraction implements Updatable {
 
   // ---- drag ----
 
-  private startDrag(drag: Drag) {
+  private startDrag(drag: Drag, commit = true) {
     const { hand, board, scene, tweens, zones } = this.opts
     const card = drag.card
     drag.active = true
-    this.opts.onCommit()
+    if (commit) this.opts.onCommit()
     this.publishHover(null)
     this.setDeckHover(false)
     if (drag.fromHand) {
@@ -567,6 +582,7 @@ export class HandInteraction implements Updatable {
     this.opts.canvas.style.cursor = 'default'
 
     const poseChanged = card.faceUp !== drag.faceUp || card.defense !== drag.defense
+    const fromDeck = drag.fromZone === OWN_DECK
     let acted = false
     if (drag.over === OWN_DECK) {
       onReturnToDeck(card)
@@ -576,6 +592,8 @@ export class HandInteraction implements Updatable {
     } else if (!drag.over && this.ndc.y < HAND_DROP_NDC_Y) {
       acted = !drag.fromHand
       hand.add(card, 0.35)
+    } else if (fromDeck) {
+      onReturnToDeck(card)
     } else if (drag.fromZone) {
       board.place(card, drag.fromZone, 0.28, { from: drag.fromZone })
     } else {

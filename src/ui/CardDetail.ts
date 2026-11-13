@@ -15,6 +15,8 @@ export class CardDetail {
   private closeBtn: HTMLButtonElement
   private pinned: Card | null = null
   private hovered: Card | null = null
+  /** Deck card kept on screen. It has no mesh, so it is not a pin. */
+  private sticky: CardData | null = null
   private reveal = false
   private faces = new Map<number, string>()
 
@@ -43,7 +45,25 @@ export class CardDetail {
     this.hovered = card
     this.reveal = reveal
     if (this.pinned && this.pinned !== card) return
+    if (this.sticky) return
     this.paint(this.pinned ?? card, reveal || !!this.pinned?.faceUp)
+  }
+
+  /** Face-up preview of a deck card. Ignored while one is pinned or selected. */
+  previewData(data: CardData | null) {
+    if (this.pinned || this.sticky) return
+    this.paintData(data)
+  }
+
+  /** Keep a deck card's details up. `null` clears it. */
+  stickData(data: CardData | null) {
+    this.sticky = data
+    if (data) this.pinned = null
+    this.closeBtn.hidden = !data && !this.pinned
+    this.root.classList.toggle('is-pinned', !!data || !!this.pinned)
+    if (data) this.paintData(data)
+    else this.paint(this.pinned ?? this.hovered, this.reveal || !!this.pinned?.faceUp)
+    if (data) this.onPinned?.(null)
   }
 
   /**
@@ -51,6 +71,7 @@ export class CardDetail {
    * `null` unpins and falls back to whatever is hovered.
    */
   pin(card: Card | null) {
+    this.sticky = null
     if (!card || this.pinned === card) this.pinned = null
     else this.pinned = card
     this.closeBtn.hidden = !this.pinned
@@ -77,7 +98,12 @@ export class CardDetail {
       this.descEl.textContent = ''
       return
     }
-    const data = card.data
+    this.paintData(card.data)
+  }
+
+  private paintData(data: CardData | null) {
+    this.root.classList.toggle('is-on', !!data)
+    if (!data) return
     this.img.src = this.faceUrl(data)
     this.img.alt = data.name
     this.nameEl.textContent = data.name

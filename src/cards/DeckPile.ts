@@ -1,4 +1,5 @@
-import { BoxGeometry, Mesh, MeshStandardMaterial } from 'three'
+import { BoxGeometry, Euler, Mesh, MeshStandardMaterial, Quaternion, Vector3 } from 'three'
+import { easeInOutCubic, type Tweens } from '@/anim/Tweens'
 import { CARD_H, CARD_W } from '@/config'
 import { getZoneByKey } from '@/scene/ZoneLayout'
 import { getSleeveMaterial } from './Card'
@@ -35,6 +36,31 @@ export class DeckPile {
 
   get size() {
     return this.count
+  }
+
+  /** Quick riffle: the pile jolts side to side with a little twist, then settles. */
+  shuffle(tweens: Tweens) {
+    if (this.count < 2) return
+    const mesh = this.mesh
+    const rest = () => new Vector3(mesh.position.x, this.count ? Math.max(this.count, 1) * THICKNESS / 2 + 0.35 : 0, mesh.position.z)
+    const base = mesh.position.clone()
+    const baseY = Math.atan2(2 * (mesh.quaternion.y * mesh.quaternion.w), 1 - 2 * mesh.quaternion.y ** 2)
+    const turn = (a: number) => new Quaternion().setFromEuler(new Euler(0, baseY + a, 0))
+    const step = (dx: number, a: number, dur: number, next?: () => void) => {
+      const to = rest()
+      to.x = base.x + dx
+      to.y += Math.abs(dx) * 0.4
+      tweens.animate(mesh, { position: to, quaternion: turn(a) }, dur, { ease: easeInOutCubic, onDone: next })
+    }
+    step(-0.28, 0.12, 0.09, () =>
+      step(0.28, -0.12, 0.12, () =>
+        step(-0.16, 0.07, 0.1, () => {
+          const to = rest()
+          to.x = base.x
+          tweens.animate(mesh, { position: to, quaternion: turn(0) }, 0.1, { ease: easeInOutCubic })
+        }),
+      ),
+    )
   }
 
   /** World Y of the top card. */
