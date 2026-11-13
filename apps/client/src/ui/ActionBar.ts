@@ -39,12 +39,19 @@ export class ActionBar {
   private deck: { data: CardData; onPlay: (play: PlayAction) => void; extra: DeckExtra[] } | null = null
   private targeting = false
 
+  private readonly onPlay: (card: Card, play: PlayAction) => void
+  private readonly onCancel: () => void
+  private readonly onAttack: (card: Card) => void
+
   constructor(
     parent: HTMLElement,
-    private readonly onPlay: (card: Card, play: PlayAction) => void,
-    private readonly onCancel: () => void,
-    private readonly onAttack: (card: Card) => void,
+    onPlay: (card: Card, play: PlayAction) => void,
+    onCancel: () => void,
+    onAttack: (card: Card) => void,
   ) {
+    this.onPlay = onPlay
+    this.onCancel = onCancel
+    this.onAttack = onAttack
     this.root = document.createElement('div')
     this.root.className = 'action-bar'
     this.root.hidden = true

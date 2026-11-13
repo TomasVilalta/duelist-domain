@@ -20,7 +20,10 @@ export class CardDetail {
   private reveal = false
   private faces = new Map<number, string>()
 
-  constructor(parent: HTMLElement, private onPinned?: (card: Card | null) => void) {
+  private onPinned?: (card: Card | null) => void
+
+  constructor(parent: HTMLElement, onPinned?: (card: Card | null) => void) {
+    this.onPinned = onPinned
     this.root = document.createElement('aside')
     this.root.className = 'card-detail'
     this.root.innerHTML = `

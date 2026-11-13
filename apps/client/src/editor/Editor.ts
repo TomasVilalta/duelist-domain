@@ -55,10 +55,12 @@ export class Editor {
   private raf = 0
   private down = { x: 0, y: 0 }
 
-  constructor(
-    private readonly canvas: HTMLCanvasElement,
-    private readonly hooks: EditorHooks,
-  ) {
+  private readonly canvas: HTMLCanvasElement
+  private readonly hooks: EditorHooks
+
+  constructor(canvas: HTMLCanvasElement, hooks: EditorHooks) {
+    this.canvas = canvas
+    this.hooks = hooks
     this.renderer = new WebGLRenderer({ canvas, antialias: true })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.renderer.shadowMap.enabled = true
@@ -68,7 +70,7 @@ export class Editor {
     this.orbit = new OrbitControls(this.camera, canvas)
     this.orbit.target.set(0, 0, 0)
     this.orbit.maxPolarAngle = Math.PI / 2.05
-    this.orbit.mouseButtons.LEFT = -1
+    this.orbit.mouseButtons.LEFT = null
     this.orbit.mouseButtons.RIGHT = MOUSE.ROTATE
     this.orbit.mouseButtons.MIDDLE = MOUSE.PAN
     this.orbit.update()

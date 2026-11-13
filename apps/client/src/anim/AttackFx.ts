@@ -13,11 +13,15 @@ const DIRECT_Z = -1.95
 export class AttackFx {
   private running = new Set<Card>()
 
-  constructor(
-    private readonly tweens: Tweens,
-    private readonly board: BoardState,
-    private readonly landing: LandingFx,
-  ) {}
+  private readonly tweens: Tweens
+  private readonly board: BoardState
+  private readonly landing: LandingFx
+
+  constructor(tweens: Tweens, board: BoardState, landing: LandingFx) {
+    this.tweens = tweens
+    this.board = board
+    this.landing = landing
+  }
 
   /** `target` null is a direct attack. */
   attack(attacker: Card, target: Card | null) {

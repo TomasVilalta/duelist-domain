@@ -1,3 +1,20 @@
+# Dependencies (root and every workspace package)
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+dist-ssr/
+build/
+*.tsbuildinfo
+coverage/
+
+# Env and local overrides
+.env
+.env.*
+!.env.example
+*.local
+
 # Logs
 logs
 *.log
@@ -7,16 +24,16 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# Only the root lockfile is used
+apps/*/pnpm-lock.yaml
+apps/*/package-lock.json
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
 .idea
 .DS_Store
+Thumbs.db
 *.suo
 *.ntvs*
 *.njsproj

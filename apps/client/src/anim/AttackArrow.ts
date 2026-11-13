@@ -23,7 +23,10 @@ export class AttackArrow implements Updatable {
   private readonly headGeo = new ConeGeometry(0.2, 0.42, 20)
   private t = 0
 
-  constructor(private readonly scene: Scene, private readonly invalidate: () => void) {
+  private readonly invalidate: () => void
+
+  constructor(scene: Scene, invalidate: () => void) {
+    this.invalidate = invalidate
     this.mat.color.setRGB(2.6, 0.55, 0.15)
     this.mat.fog = false
     this.shaftGeo.rotateX(-Math.PI / 2)
