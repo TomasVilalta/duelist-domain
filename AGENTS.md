@@ -10,19 +10,20 @@ Tickets live in `docs/sprints/sprint-N-*.md`. Work one ticket at a time, in the 
 
 1. Branch from `dev`: `sprint-N/tX-short-name`. If the ticket depends on an unmerged ticket, branch from that ticket's branch and set it as the PR base instead of `dev`.
 2. Build the ticket. Stay inside its scope.
-3. Run `pnpm lint`, `pnpm typecheck`, `pnpm test`. All must pass before pushing.
-4. Commit (`tX: <summary>`), push, open a PR with `gh pr create --base dev` using `.github/pull_request_template.md`.
-5. Update the ticket heading in the sprint doc to `(built, in review: <PR link>)`.
-6. Wait for the Codex review (`gh pr view --comments`, poll every few minutes, not in a tight loop).
-7. Fix review findings, push, then comment `@codex review` to request a re-review.
-8. Stop when Codex reports no issues. Max 2 fix rounds: after that, stop and summarize open findings for the human.
+3. Run `pnpm lint`, `pnpm typecheck`, `pnpm test`. All must pass before reviewing.
+4. Commit (`tX: <summary>`), then run the local Codex review against the PR base:
+   `codex -c review_model='"gpt-6-astra"' -c model_reasoning_effort='"low"' review --base dev`
+   Use the parent ticket branch instead of `dev` for stacked tickets.
+5. Fix findings, rerun checks, commit, review again. Stop when Codex reports no P0/P1 issues. Max 2 fix rounds: after that, stop and list open findings in the PR.
+6. Push and open a PR with `gh pr create --base dev` using `.github/pull_request_template.md`. Fill in the Codex review section.
+7. Update the ticket heading in the sprint doc to `(built, in review: <PR link>)`, commit, push.
 
 Never merge a PR. The human merges after the manual test; merging marks the ticket done.
 
 ## Review findings
 
 - Fix findings that are real bugs or break the ticket's acceptance criteria.
-- Skip findings that are out of scope or style-only. Reply on the thread with one line explaining why.
+- Skip findings that are out of scope or style-only. List each in the PR with a one-line reason.
 - Do not expand scope to satisfy a reviewer.
 
 ## Manual test
