@@ -218,6 +218,7 @@ A `reconcile(prev, next)` function runs on every store change:
 - `BoardState` and `Hand` become **view layouts**: they hold meshes in the order the state gives, but no longer decide where cards belong.
 - The source of a move (hand, deck, pile or field) is derived from `prev`, which replaces the current `origin` parameter.
 - `load()`/`undo()` (a large jump between states) snaps to the new layout or plays a short animation, without per-card landing effects.
+- **Known bug to fix:** a counter badge stays on a card sent from the field to the GY, hand or banished (found in the T7 manual test, already on `dev`). The old path never resets `Card.counters`. `apply()` already resets them, so the reconcile must push the new counter value to the mesh through `Card.applyState()`.
 
 **DoD**
 - Every visual change on the board comes from a store change, and no code moves meshes between zones outside `reconcile`.
@@ -229,6 +230,7 @@ A `reconcile(prev, next)` function runs on every store change:
 - Normal Summon from the hand, Set a monster, Set a spell/trap, and activate a Field Spell.
 - Xyz: drop a monster onto another. Materials peek out on the left and only the top card shows ATK.
 - Send to the GY, banish face-up, banish face-down, and return to the top or bottom of the deck or shuffle it in. The deck count updates.
+- Add a counter to a field card, then send it to the GY, the hand, or banish it: the badge is gone.
 - Put a Pendulum monster in the extra deck: it shows face-up on top.
 - Undo after each of the steps above: the board matches the previous state with no stray meshes.
 

@@ -1,5 +1,16 @@
 # Agent workflow
 
+## Decisions
+
+Never make product, functionality, or architecture decisions alone. Ask the human first and wait for approval. This covers:
+
+- Behavior or rules not stated in the ticket or sprint doc.
+- New dependencies, packages, or changes to package boundaries.
+- Changes to data models, public APIs, or the state shape.
+- Fixing a review finding in a way that changes behavior or design.
+
+If the ticket is ambiguous, stop and ask with concrete options. Implementation details inside an approved design need no approval.
+
 ## Planning
 
 Use the `architect` subagent (`.cursor/agents/architect.md`) to design sprints, split tickets, and restructure `docs/`. Sprint docs must exist before the ticket loop starts.
