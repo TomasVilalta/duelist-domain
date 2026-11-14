@@ -74,3 +74,21 @@ export function createGameStore(ctx?: ApplyContext) {
 }
 
 export const useGameStore = createGameStore()
+
+/** Debug dump: the whole game plus the action log that led to it. Plain JSON. */
+export interface GameDump {
+  game: GameState
+  log: Action[]
+}
+
+export function dumpGame(s: Pick<GameStore, 'game' | 'log'>): string {
+  const dump: GameDump = { game: s.game, log: s.log }
+  return JSON.stringify(dump)
+}
+
+/** A store that starts from a dump. History and log start empty. */
+export function createStoreFrom(dump: GameDump, ctx: ApplyContext) {
+  const store = createGameStore(ctx)
+  store.getState().load(dump.game, ctx)
+  return store
+}

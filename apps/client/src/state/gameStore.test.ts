@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createGame, type GameState } from '@duelist/shared'
-import { HISTORY_LIMIT, createGameStore } from './gameStore'
+import { HISTORY_LIMIT, createGameStore, createStoreFrom, dumpGame, type GameDump } from './gameStore'
 
 const ctx = { isPendulum: () => false }
 
@@ -114,4 +114,27 @@ describe('gameStore', () => {
     store.getState().dispatch({ type: 'endTurn', seat: 0 })
     expect(listener).not.toHaveBeenCalled()
   })
-})
+
+  it('a dump round-trips through JSON into an identical game', () => {
+    const store = loaded()
+    store.getState().dispatch({ type: 'draw', seat: 0, count: 5 })
+    const uid = store.getState().game.zones['s0:hand:0']![0]!
+    store.getState().dispatch({ type: 'move', seat: 0, uid, to: 's0:monster:0', faceUp: true })
+    store.getState().dispatch({ type: 'addCounter', seat: 0, uid, delta: 2 })
+    const json = dumpGame(store.getState())
+    const copy = createStoreFrom(JSON.parse(json) as GameDump, ctx)
+    expect(copy.getState().game).toEqual(store.getState().game)
+    expect(copy.getState().history).toEqual([])
+    expect(JSON.parse(json).log).toHaveLength(3)
+  })
+
+  it('undoing every step returns to the starting game', () => {
+    const store = loaded()
+    const start = structuredClone(store.getState().game)
+    store.getState().dispatch({ type: 'draw', seat: 0, count: 5 })
+    for (let i = 0; i < 20; i++) store.getState().dispatch({ type: 'setLP', seat: 0, target: 0, lp: 8000 - i * 100 })
+    for (let i = 0; i < 21; i++) store.getState().undo()
+    expect(store.getState().game).toEqual(start)
+    expect(store.getState().log).toEqual([])
+  })})
+

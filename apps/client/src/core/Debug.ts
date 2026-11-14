@@ -1,6 +1,7 @@
 import GUI from 'lil-gui'
 import { QUALITY, type QualityName } from '@/config'
 import { ZONES } from '@/scene/ZoneLayout'
+import { dumpGame, useGameStore, type GameDump } from '@/state/gameStore'
 import type { App } from './App'
 
 export function setupDebug(app: App): () => void {
@@ -47,7 +48,14 @@ export function setupDebug(app: App): () => void {
     state.triangles = app.renderer.info.render.triangles
   }, 500)
 
+  // `copy(__game())` dumps the game state and action log as JSON. `__loadGame(json)` replaces the board with a dump.
+  const w = window as unknown as { __game?: () => string; __loadGame?: (json: string) => void }
+  w.__game = () => dumpGame(useGameStore.getState())
+  w.__loadGame = (json) => app.loadDump(JSON.parse(json) as GameDump)
+
   return () => {
+    delete w.__game
+    delete w.__loadGame
     clearInterval(timer)
     gui.destroy()
   }

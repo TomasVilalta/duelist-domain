@@ -18,7 +18,8 @@ export class CardDetail {
   /** Deck card kept on screen. It has no mesh, so it is not a pin. */
   private sticky: CardData | null = null
   private reveal = false
-  private faces = new Map<number, string>()
+  /** Generated faces (cards without art), keyed by what the face shows. */
+  private faces = new Map<string, string>()
 
   private onPinned?: (card: Card | null) => void
 
@@ -123,12 +124,13 @@ export class CardDetail {
 
   private faceUrl(data: CardData): string {
     if (data.image) return data.image
-    const cached = this.faces.get(data.uid)
+    const key = [data.name, data.kind, data.atk, data.def, data.level, data.scale, data.type].join('|')
+    const cached = this.faces.get(key)
     if (cached) return cached
     const tex = makeFaceTexture(data)
     const url = (tex.image as HTMLCanvasElement).toDataURL('image/png')
     tex.dispose()
-    this.faces.set(data.uid, url)
+    this.faces.set(key, url)
     return url
   }
 }
