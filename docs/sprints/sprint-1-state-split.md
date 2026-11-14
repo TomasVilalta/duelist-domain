@@ -1,4 +1,4 @@
-# Sprint 1: Separate game state from rendering
+﻿# Sprint 1: Separate game state from rendering
 
 Roadmap step 1. See [roadmap-v0.md](../roadmap-v0.md), and decisions D4, D5 and D6 in [decisions.md](../decisions.md).
 
@@ -237,7 +237,7 @@ A `reconcile(prev, next)` function runs on every store change:
 
 ---
 
-## T9: Interactions dispatch Actions
+## T9: Interactions dispatch Actions (built, in review: https://github.com/TomasVilalta/duelist-domain/pull/7)
 Rewire `CardActions`, `HandInteraction` and the deck/pile handlers in `App.ts` (`drawCard`, `millCard`, `shuffleDeck`, `returnToDeck`, `playFromDeck`, `handFromDeck`, `changeLp`, `setPhase`, `endTurn`, `declareAttack`) so they build `Action`s and call `dispatch`. `shuffle` creates its random order on the client for now, with a `TODO(server)` marker.
 - `targetZoneKeys`, `attackTargetKeys` and `isAttacker` read from `GameState` and take a `seat` instead of `'p1' | 'p2'`.
 - Drag and drop: during the drag the card is a temporary visual. On drop, the client dispatches `move` (with `faceUp`/`defense` from the chosen pose), and on cancel nothing is dispatched.

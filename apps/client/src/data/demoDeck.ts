@@ -5,7 +5,8 @@ export type CardData = Omit<CardInfo, 'passcode'> & { uid: number; passcode?: nu
 
 type Template = Omit<CardData, 'uid'>
 
-const TEMPLATES: Template[] = [
+/** Placeholder cards, used when the card catalog can't be loaded. */
+export const TEMPLATES: Template[] = [
   { name: 'Ember Drake', kind: 'monster', atk: 2400, def: 1800, level: 7 },
   { name: 'Moss Golem', kind: 'monster', atk: 1900, def: 2300, level: 6 },
   { name: 'Silver Wolf', kind: 'monster', atk: 1600, def: 1200, level: 4 },
