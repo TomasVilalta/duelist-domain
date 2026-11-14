@@ -26,8 +26,8 @@ class FakeView implements CardView {
 const ctx = { isPendulum: () => false }
 const info = (passcode: number): CardInfo => ({ passcode, name: `#${passcode}`, kind: 'monster' })
 
-function setup() {
-  const deck = { main: Array.from({ length: 10 }, (_, i) => 100 + i), extra: [900] }
+function setup(extra: number[] = []) {
+  const deck = { main: Array.from({ length: 10 }, (_, i) => 100 + i), extra }
   let game = createGame({ players: [{ name: 'A', deck }, { name: 'B', deck }] })
   const created: FakeView[] = []
   const views = new CardViews<FakeView>(info, (uid) => {
@@ -47,10 +47,46 @@ function setup() {
 const top = (g: GameState, key: string) => g.zones[key]!.at(-1)!
 
 describe('CardViews', () => {
-  it('creates no views for deck and extra deck cards', () => {
-    const { views, game } = setup()
-    expect(views.sync(game())).toEqual({ added: [], removed: [] })
-    expect(views.size).toBe(0)
+  it('creates no views for deck cards, but does for extra deck cards', () => {
+    const { views, game } = setup([900])
+    const { added, removed } = views.sync(game())
+    expect(removed).toEqual([])
+    expect(added).toHaveLength(2)
+    expect(added.every((uid) => game().zones['s0:extra:0']!.includes(uid) || game().zones['s1:extra:0']!.includes(uid))).toBe(true)
+    expect(views.size).toBe(2)
+  })
+
+  it('skips hidden zones and creates a view on demand with ensure()', () => {
+    const deck = { main: [1, 2, 3], extra: [] }
+    const game = createGame({ players: [{ name: 'A', deck }, { name: 'B', deck }] })
+    const views = new CardViews<FakeView>(info, (uid) => new FakeView(uid), { hidden: (key) => key.startsWith('s1:') })
+    let state = game
+    for (const seat of [0, 1]) {
+      const r = apply(state, { type: 'draw', seat, count: 1 }, ctx)
+      if (!r.ok) throw new Error(r.error)
+      state = r.state
+    }
+    expect(views.sync(state).added).toHaveLength(1)
+    const deckCard = state.zones['s0:deck:0']![0]!
+    expect(views.get(deckCard)).toBeUndefined()
+    expect(views.ensure(state, deckCard)).toBe(views.get(deckCard))
+    // not in a rendered zone, so the next sync releases it
+    expect(views.sync(state).removed).toEqual([deckCard])
+  })
+
+  it('calls onRelease before disposing a view', () => {
+    const order: string[] = []
+    const views = new CardViews<FakeView>(info, (uid) => new FakeView(uid), {
+      onRelease: (uid, v) => order.push(`${uid}:${v.disposed}`),
+    })
+    const deck = { main: [1, 2], extra: [] }
+    let state = createGame({ players: [{ name: 'A', deck }, { name: 'B', deck }] })
+    const drawn = apply(state, { type: 'draw', seat: 0, count: 1 }, ctx)
+    if (!drawn.ok) throw new Error(drawn.error)
+    state = drawn.state
+    const [uid] = views.sync(state).added
+    views.dispose()
+    expect(order).toEqual([`${uid}:false`])
   })
 
   it('creates a view when a card is drawn and disposes it when it returns to the deck', () => {

@@ -1,4 +1,5 @@
 import { Group, Scene, Vector3, WebGLRenderer, NoToneMapping, PCFSoftShadowMap } from 'three'
+import { PHASES, type Action, type ApplyContext, type GameState, type Seat } from '@duelist/shared'
 import { QUALITY, detectQuality, type QualityName } from '@/config'
 import { loadPBR } from './Assets'
 import { Loop } from './Loop'
@@ -11,28 +12,35 @@ import { Zones } from '@/scene/Zones'
 import { Particles } from '@/scene/Particles'
 import { CameraRig } from '@/scene/CameraRig'
 import { PostFX } from '@/scene/PostFX'
+import { BoardView } from '@/scene/BoardView'
 import { Tweens } from '@/anim/Tweens'
 import { LandingFx } from '@/anim/LandingFx'
 import { CardGlow } from '@/anim/CardGlow'
 import { AttackFx } from '@/anim/AttackFx'
 import { AttackArrow } from '@/anim/AttackArrow'
 import { BoardState } from '@/state/BoardState'
-import { Card } from '@/cards/Card'
+import { useGameStore } from '@/state/gameStore'
+import { useUiStore } from '@/state/uiStore'
+import { createCardMesh, type Card } from '@/cards/Card'
 import { DeckPile } from '@/cards/DeckPile'
 import { Hand } from '@/cards/Hand'
-import { HandInteraction, type ContextTarget } from '@/interaction/HandInteraction'
-import { attackTargetKeys, CardActions, isAttacker, type DeckPos, type PlayAction } from '@/interaction/CardActions'
+import { HandInteraction, type ContextTarget, type Drop } from '@/interaction/HandInteraction'
+import {
+  attackTargetKeys,
+  CardActions,
+  isAttacker,
+  opposingMonsterKeys,
+  type PlayAction,
+} from '@/interaction/CardActions'
 import { ContextMenu } from '@/ui/ContextMenu'
 import { Hud } from '@/ui/Hud'
 import { CardDetail } from '@/ui/CardDetail'
 import { PileViewer, type PileView } from '@/ui/PileViewer'
 import { ActionBar, type BarExtra } from '@/ui/ActionBar'
-import { buildDemoDeck, loadDemoDeck, shuffle, type CardData } from '@/data/demoDeck'
+import { shuffle, type CardData } from '@/data/demoDeck'
+import { loadStartGame, type Catalog } from '@/data/loadGame'
 import { disposeCardArt, preloadCardArt } from '@/cards/CardArt'
-import { getZoneByKey, isViewPile } from '@/scene/ZoneLayout'
-import { copyData, type CardSnap, type Snap } from '@/state/Snapshot'
-
-const PHASES = ['Draw', 'Standby', 'Main 1', 'Battle', 'Main 2', 'End']
+import { deckKey, getZoneByKey, isViewPile } from '@/scene/ZoneLayout'
 
 export class App {
   readonly renderer: WebGLRenderer
@@ -50,14 +58,18 @@ export class App {
   disposed = false
   readonly tweens: Tweens
   readonly hand: Hand
-  private deckCards: CardData[] = []
-  private deckPile!: DeckPile
+  private catalog: Catalog = new Map()
+  private applyCtx!: ApplyContext
+  /** Renders the game state: the only code that moves card meshes between zones. */
+  private bv!: BoardView
+  private piles = new Map<string, DeckPile>()
+  private unsubscribe?: () => void
+  /** ATK/DEF edited from the menu. Not part of the game state yet, so they aren't undone. */
+  private statEdits = new Map<string, { atk: number; def: number }>()
   /** Pile dialog that is open, if any. */
   private viewing: string | null = null
-  /** Selected card in the deck dialog. It stays data until an action takes it. */
-  private deckPick: number | null = null
-  /** Card pulled out of the deck and not yet in the hand or a zone. */
-  private deckHold: { card: Card; index: number } | null = null
+  /** Selected card in the deck dialog. */
+  private deckPick: string | null = null
   /** Drag-out already shuffled; closing the dialog must not shuffle again. */
   private skipDeckShuffle = false
   private board!: BoardState
@@ -70,13 +82,6 @@ export class App {
   private actionBar?: ActionBar
   private glow?: CardGlow
   private hintDefault = ''
-  private live = new Map<number, Card>()
-  private past: Snap[] = []
-  private lp1 = 8000
-  private lp2 = 8000
-  private phase = 0
-  private turn = 1
-  private activePlayer: 'p1' | 'p2' = 'p1'
   private interaction?: HandInteraction
   private timers: number[] = []
   private canvas: HTMLCanvasElement
@@ -99,7 +104,7 @@ export class App {
 
     // Overlays are oriented here, only on frames that actually render.
     this.loop = new Loop(() => {
-      for (const card of this.live.values()) card.billboard(this.rig.camera)
+      if (this.bv) for (const card of this.bv.views.values()) card.billboard(this.rig.camera)
       this.fx.render(this.lastDt)
     })
     this.rig = new CameraRig(this.loop.invalidate)
@@ -111,160 +116,67 @@ export class App {
     this.scene.add(this.rig.camera)
   }
 
-  /** Draw the top card of player 1's deck into the hand. */
-  drawCard(commit = true) {
-    if (this.deckCards.length === 0) return
-    if (commit) this.record()
-    const card = this.spawnFromDeck()
-    if (!card) return
-    this.hand.add(card)
-    this.sync()
+  // ---- game state: read it here, change it only through `dispatch` ----
+
+  private get game(): GameState {
+    return useGameStore.getState().game
   }
 
-  /** Take the top card off the deck as a mesh lying on the deck pile. */
-  private spawnFromDeck(): Card | null {
-    return this.takeFromDeck()
+  private get seat(): Seat {
+    return useUiStore.getState().localSeat
   }
 
-  /**
-   * Pull one card out of the deck and spawn it on the pile.
-   * No uid takes the top card. The card is remembered so a cancelled play can put it back,
-   * and so a snapshot taken before it lands still includes it.
-   */
-  private takeFromDeck(uid?: number): Card | null {
-    if (this.deckHold) this.restoreDeckHold()
-    const index = uid == null ? this.deckCards.length - 1 : this.deckCards.findIndex((c) => c.uid === uid)
-    if (index < 0) return null
-    const [data] = this.deckCards.splice(index, 1)
-    this.deckPile.setCount(this.deckCards.length)
-    const card = new Card(data)
-    card.faceUp = true
-    const zone = getZoneByKey('p1:deck:0')!
-    card.mesh.position.set(zone.x, this.deckPile.topY + 0.02, zone.z)
-    card.mesh.rotation.set(Math.PI / 2, 0, 0)
-    this.scene.add(card.mesh)
-    this.live.set(card.data.uid, card)
-    this.deckHold = { card, index }
-    this.loop.invalidate()
-    return card
+  private dispatch = (action: Action) => useGameStore.getState().dispatch(action)
+
+  private get ownDeck() {
+    return deckKey(this.seat)
   }
 
-  /** Put a pulled card back where it was. Used when a zone choice is cancelled. */
-  private restoreDeckHold() {
-    const hold = this.deckHold
-    if (!hold) return
-    const card = hold.card
-    this.deckHold = null
-    if (card.zoneKey || this.hand.cards.includes(card)) return
-    this.tweens.cancel(card.mesh)
-    card.mesh.removeFromParent()
-    this.live.delete(card.data.uid)
-    card.dispose()
-    this.deckCards.splice(Math.min(hold.index, this.deckCards.length), 0, card.data)
-    this.deckPile.setCount(this.deckCards.length)
-    this.loop.invalidate()
+  /** Printed data of a card by uid, with any edited ATK/DEF. */
+  private dataOf(uid: string): CardData | null {
+    const state = this.game.cards[uid]
+    const info = state && this.catalog.get(state.passcode)
+    if (!info) return null
+    return { ...info, uid: Number(uid.slice(1)), ...this.statEdits.get(uid) }
   }
 
-  /** Forget the hold once the card has a real home. The snapshot already recorded the old one. */
-  private releaseDeckHold() {
-    const hold = this.deckHold
-    if (hold && (hold.card.zoneKey || this.hand.cards.includes(hold.card))) this.deckHold = null
-  }
-
-  /** Deck list for a snapshot. A card in mid-play is included at the index it left. */
-  private deckForSnap(): CardData[] {
-    const deck = this.deckCards.slice()
-    const hold = this.deckHold
-    if (!hold) return deck
-    const card = hold.card
-    if (card.zoneKey || this.hand.cards.includes(card)) return deck
-    if (deck.some((d) => d.uid === card.data.uid)) return deck
-    deck.splice(Math.min(hold.index, deck.length), 0, card.data)
-    return deck
-  }
-
-  private pileViews(key: string): PileView[] {
-    if (key === 'p1:deck:0') {
-      return this.deckCards.map((data) => ({ uid: data.uid, name: data.name, image: data.image, faceUp: true }))
-    }
-    return this.board.cardsIn(key).map((card) => ({
-      uid: card.data.uid,
-      name: card.data.name,
-      image: card.data.image,
-      faceUp: card.faceUp,
-    }))
-  }
-
-  private cardByUid(uid: number): Card | null {
-    for (const list of this.board.entries()) {
-      const card = list[1].find((c) => c.data.uid === uid)
-      if (card) return card
-    }
-    return null
-  }
-
-  /** Close first when the action waits for a zone, so the shuffle snapshot still contains the card. */
-  private pullDeckCard(uid: number, closeFirst: boolean): Card | null {
-    if (closeFirst) this.viewer?.close()
-    return this.takeFromDeck(uid)
-  }
-
-  private playFromDeck(uid: number, play: PlayAction) {
-    this.viewer?.close()
-    const card = this.takeFromDeck(uid)
-    if (card) this.actions.play(card, play)
-  }
-
-  private handFromDeck(uid: number) {
-    const card = this.takeFromDeck(uid)
-    if (!card) return
-    this.deckPick = null
-    this.detail?.stickData(null)
-    this.actions.toHand(card)
+  /** Draw the top card of the local deck into the hand. */
+  drawCard() {
+    if ((this.game.zones[this.ownDeck]?.length ?? 0) === 0) return
+    this.dispatch({ type: 'draw', seat: this.seat, count: 1 })
   }
 
   private millCard() {
-    if (this.deckCards.length === 0) return
-    this.record()
-    const card = this.spawnFromDeck()
-    if (!card) return
-    card.faceUp = true
-    this.board.place(card, 'p1:gy:0', 0.4)
-    this.sync()
+    if ((this.game.zones[this.ownDeck]?.length ?? 0) === 0) return
+    this.dispatch({ type: 'mill', seat: this.seat, count: 1 })
   }
 
   private shuffleDeck() {
-    if (this.deckCards.length < 2) return
-    this.record()
-    shuffle(this.deckCards)
-    this.deckPile.shuffle(this.tweens)
-    this.sync()
+    const list = this.game.zones[this.ownDeck] ?? []
+    if (list.length < 2) return
+    // TODO(server): the server will choose the order.
+    this.dispatch({ type: 'shuffle', seat: this.seat, zone: this.ownDeck, order: shuffle([...list]) })
   }
 
-  /** Put a card back into player 1's deck. `commit` is false when a drag already snapshotted. */
-  private returnToDeck(card: Card, pos: DeckPos = 'top', commit = true) {
-    if (commit) this.record()
-    if (this.deckHold?.card === card) this.deckHold = null
-    this.tweens.cancel(card.mesh)
-    this.board.remove(card)
-    this.hand.remove(card)
-    // the mesh may still be parented to the hand group, not the scene
-    card.mesh.removeFromParent()
-    this.live.delete(card.data.uid)
-    card.dispose()
-    if (pos === 'bottom') this.deckCards.unshift(card.data)
-    else this.deckCards.push(card.data)
-    if (pos === 'shuffle') shuffle(this.deckCards)
-    this.deckPile.setCount(this.deckCards.length)
-    if (pos === 'shuffle') this.deckPile.shuffle(this.tweens)
-    this.deselect()
-    this.sync()
+  private pileViews(key: string): PileView[] {
+    const game = this.game
+    const deck = key === this.ownDeck
+    return (game.zones[key] ?? []).flatMap((uid): PileView[] => {
+      const data = this.dataOf(uid)
+      const state = game.cards[uid]
+      if (!data || !state) return []
+      return [{ uid, name: data.name, image: data.image, faceUp: deck || state.faceUp }]
+    })
+  }
+
+  private cardByUid(uid: string): Card | null {
+    return this.bv.views.get(uid) ?? null
   }
 
   private openContext = (t: ContextTarget, x: number, y: number, above: boolean) => {
     this.menuPos = { x, y }
     if (t.kind === 'deck') {
-      this.menu.open(x, y, `Deck (${this.deckCards.length})`, [
+      this.menu.open(x, y, `Deck (${this.game.zones[this.ownDeck]?.length ?? 0})`, [
         { label: 'Draw', action: () => this.drawCard() },
         { label: 'Mill 1 (to GY)', action: () => this.millCard() },
         { label: 'Shuffle', action: () => this.shuffleDeck() },
@@ -277,133 +189,44 @@ export class App {
   }
 
   drawCards(n: number) {
-    for (let i = 0; i < n; i++) this.timers.push(window.setTimeout(() => this.drawCard(false), i * 180))
+    for (let i = 0; i < n; i++) this.timers.push(window.setTimeout(() => this.drawCard(), i * 180))
   }
 
-  private changeLp(owner: 'p1' | 'p2', delta: number) {
-    this.record()
-    if (owner === 'p1') this.lp1 = Math.max(0, this.lp1 + delta)
-    else this.lp2 = Math.max(0, this.lp2 + delta)
-    this.sync()
+  private changeLp(seat: Seat, delta: number) {
+    const lp = this.game.seats[seat]?.lp
+    if (lp === undefined) return
+    this.dispatch({ type: 'setLP', seat: this.seat, target: seat, lp: Math.max(0, lp + delta) })
   }
 
   /** Jump to a phase. Does not change whose turn it is. */
   setPhase(i: number) {
-    if (i < 0 || i >= PHASES.length || i === this.phase) return
-    this.record()
-    this.phase = i
-    this.sync()
+    if (i < 0 || i >= PHASES.length || i === this.game.phase) return
+    this.dispatch({ type: 'setPhase', seat: this.seat, phase: i })
   }
 
   /** Hand the turn over: next turn, back to Draw, other player. */
   private endTurn() {
-    this.record()
-    this.turn += 1
-    this.phase = 0
-    this.activePlayer = this.activePlayer === 'p1' ? 'p2' : 'p1'
-    this.sync()
-  }
-
-  private record() {
-    this.past.push(this.capture())
-    if (this.past.length > 80) this.past.shift()
-    this.hud?.setUndoEnabled(true)
+    this.dispatch({ type: 'endTurn', seat: this.seat })
   }
 
   private undo() {
-    const snap = this.past.pop()
-    if (!snap) return
+    if (useGameStore.getState().history.length === 0) return
     this.menu.close()
     this.skipDeckShuffle = true
     this.viewer?.close()
     this.skipDeckShuffle = false
     this.interaction?.cancelDrag()
     this.interaction?.cancelTargeting()
-    this.deckHold = null
-    this.restore(snap)
-    this.sync()
+    useGameStore.getState().undo()
   }
 
-  private capture(): Snap {
-    const cards: CardSnap[] = []
-    this.deckForSnap().forEach((data, index) => {
-      cards.push({ data: copyData(data), faceUp: false, defense: false, counters: 0, place: 'deck', index })
-    })
-    this.hand.cards.forEach((card, index) => cards.push(this.snapOf(card, 'hand', index)))
-    for (const [key, list] of this.board.entries()) {
-      list.forEach((card, index) => cards.push(this.snapOf(card, 'zone', index, key)))
-    }
-    return { cards, lp1: this.lp1, lp2: this.lp2, phase: this.phase, turn: this.turn, activePlayer: this.activePlayer }
-  }
-
-  private snapOf(card: Card, place: 'hand' | 'zone', index: number, key?: string): CardSnap {
-    return { data: copyData(card.data), faceUp: card.faceUp, defense: card.defense, counters: card.counters, place, key, index }
-  }
-
-  private restore(snap: Snap) {
-    for (const card of this.live.values()) {
-      this.tweens.cancel(card.mesh)
-      card.mesh.removeFromParent()
-    }
-    this.hand.clear()
-    this.board.clear()
-    this.deckCards = []
-    const keep = new Map<number, Card>()
-
-    for (const s of snap.cards.filter((c) => c.place === 'deck').sort((a, b) => a.index - b.index)) {
-      this.deckCards.push(copyData(s.data))
-    }
-    for (const s of snap.cards.filter((c) => c.place === 'hand').sort((a, b) => a.index - b.index)) {
-      const fresh = !this.live.has(s.data.uid)
-      const card = this.take(s, keep)
-      if (fresh) {
-        const deck = getZoneByKey('p1:deck:0')!
-        card.mesh.position.set(deck.x, 0.4, deck.z)
-        card.mesh.rotation.set(Math.PI / 2, 0, 0)
-      }
-      this.scene.add(card.mesh)
-      this.hand.add(card, 0.3)
-    }
-    const zoned = snap.cards.filter((c) => c.place === 'zone').sort((a, b) => a.key!.localeCompare(b.key!) || a.index - b.index)
-    for (const s of zoned) {
-      const fresh = !this.live.has(s.data.uid)
-      const card = this.take(s, keep)
-      card.faceUp = s.faceUp
-      card.defense = s.defense
-      if (fresh && s.key) {
-        const zone = getZoneByKey(s.key)
-        if (zone) card.mesh.position.set(zone.x, 0.3, zone.z)
-      }
-      this.scene.add(card.mesh)
-      this.board.place(card, s.key!, 0.25)
-    }
-    for (const [uid, card] of this.live) if (!keep.has(uid)) card.dispose()
-    this.live = keep
-    this.deckPile.setCount(this.deckCards.length)
-    this.lp1 = snap.lp1
-    this.lp2 = snap.lp2
-    this.phase = snap.phase
-    this.turn = snap.turn
-    this.activePlayer = snap.activePlayer
-  }
-
-  private take(s: CardSnap, keep: Map<number, Card>): Card {
-    let card = this.live.get(s.data.uid)
-    if (!card) card = new Card(copyData(s.data))
-    else if (s.data.atk !== undefined && (card.data.atk !== s.data.atk || card.data.def !== s.data.def)) {
-      card.setStats(s.data.atk, s.data.def ?? 0)
-    }
-    card.setCounters(s.counters)
-    keep.set(s.data.uid, card)
-    return card
-  }
-
-  private sync() {
-    this.releaseDeckHold()
-    this.hud?.setLp('p1', this.lp1)
-    this.hud?.setLp('p2', this.lp2)
-    this.hud?.setPhase(this.turn, PHASES[this.phase] ?? 'Draw', this.activePlayer)
-    this.hud?.setUndoEnabled(this.past.length > 0)
+  /** Everything that follows the game state except the meshes: HUD, dialogs and shortcut buttons. */
+  private syncUi() {
+    const game = this.game
+    this.hud?.setLp(0, game.seats[0]?.lp ?? 0)
+    this.hud?.setLp(1, game.seats[1]?.lp ?? 0)
+    this.hud?.setPhase(game.turn, PHASES[game.phase] ?? 'Draw', game.activeSeat)
+    this.hud?.setUndoEnabled(useGameStore.getState().history.length > 0)
     this.viewer?.refresh()
     this.refreshShortcuts()
     this.loop.invalidate()
@@ -414,7 +237,7 @@ export class App {
     const el = document.querySelector<HTMLElement>('.hint')
     if (!el) return
     if (!this.hintDefault) this.hintDefault = el.textContent ?? ''
-    const direct = attackTargetKeys(this.board).length === 0
+    const direct = attackTargetKeys(this.game, this.seat).length === 0
     const prompt = attack
       ? direct
         ? 'Waiting for a target · click an opposing zone for a direct attack · Esc to cancel'
@@ -431,13 +254,14 @@ export class App {
 
   /** Shortcut buttons for a selected hand card, a pile card, or a card in the deck dialog. */
   private refreshShortcuts() {
-    if (this.viewing === 'p1:deck:0' && this.deckPick != null) {
-      const data = this.deckCards.find((c) => c.uid === this.deckPick)
-      if (data) {
-        this.actionBar?.setFromData(data, (play) => this.playFromDeck(data.uid, play), [
-          { label: 'To Hand', icon: 'hand', run: () => this.handFromDeck(data.uid) },
+    if (this.viewing === this.ownDeck && this.deckPick != null) {
+      const uid = this.deckPick
+      const data = this.dataOf(uid)
+      if (data && this.game.zones[this.ownDeck]?.includes(uid)) {
+        this.actionBar?.setFromData(data, (play) => this.playFromDeck(uid, play), [
+          { label: 'To Hand', icon: 'hand', run: () => this.handFromDeck(uid) },
         ])
-        this.viewer?.setSelected(this.deckPick)
+        this.viewer?.setSelected(uid)
         this.glow?.set(null)
         return
       }
@@ -446,18 +270,31 @@ export class App {
     const card = this.interaction?.pinnedCard ?? null
     const dragging = this.interaction?.isDragging ?? false
     const inHand = !!card && !dragging && this.hand.cards.includes(card)
-    const inPile = !!card && !dragging && !!card.zoneKey && isViewPile(card.zoneKey)
+    const inPile = !!card && !dragging && !!card.zoneKey && isViewPile(card.zoneKey, this.seat)
     const extra: BarExtra[] =
       inPile && card.zoneKey?.includes(':gy:')
-        ? [{ label: 'To Hand', icon: 'hand', run: (c) => this.actions.toHand(c) }]
+        ? [{ label: 'To Hand', icon: 'hand', run: (c) => this.actions.toHand(c.uid) }]
         : []
     this.actionBar?.setCard(inHand || inPile ? card : null, extra)
-    this.viewer?.setSelected(inPile && card ? card.data.uid : null)
+    this.viewer?.setSelected(inPile && card ? card.uid : null)
     this.glow?.set(inHand ? card : null)
   }
 
+  /** Close the deck dialog, then wait for a zone. Closing shuffles the deck first. */
+  private playFromDeck(uid: string, play: PlayAction) {
+    this.viewer?.close()
+    this.actions.play(uid, play)
+  }
+
+  private handFromDeck(uid: string) {
+    this.deckPick = null
+    this.detail?.stickData(null)
+    this.actions.toHand(uid)
+  }
+
   /** Step 1 feedback: arrow to the declared zone and a confirm prompt. */
-  private onDeclare(attacker: Card | null, key: string | null, declared: boolean) {
+  private onDeclare(attackerUid: string | null, key: string | null, declared: boolean) {
+    const attacker = attackerUid ? this.cardByUid(attackerUid) : null
     const zone = key ? getZoneByKey(key) : undefined
     if (attacker && zone && declared) {
       const from = attacker.mesh.position
@@ -474,59 +311,57 @@ export class App {
   }
 
   private inBattle() {
-    return PHASES[this.phase] === 'Battle'
+    return PHASES[this.game.phase] === 'Battle'
   }
 
   /** Visual only: no damage, no destruction. */
   private declareAttack(card: Card) {
-    if (!this.inBattle() || !isAttacker(card)) return
+    if (!this.inBattle() || !isAttacker(this.game, card.uid, this.seat)) return
     // No monsters to hit: every opposing monster zone is a direct-attack target.
-    const hit = attackTargetKeys(this.board)
-    const keys = hit.length ? hit : Array.from({ length: 5 }, (_, i) => `p2:monster:${i}`)
-    this.interaction?.beginAttack(card, keys)
+    const hit = attackTargetKeys(this.game, this.seat)
+    const keys = hit.length ? hit : opposingMonsterKeys(this.game, this.seat)
+    this.interaction?.beginAttack(card.uid, keys)
   }
 
-  /** Face-down extra deck: one Fusion, Synchro, XYZ, and Link monster. */
-  private seedExtra(cards: CardData[]) {
-    const zone = getZoneByKey('p1:extra:0')
-    if (!zone) return
-    for (const data of cards) {
-      const card = new Card(data)
-      card.faceUp = false
-      card.mesh.position.set(zone.x, 0.4, zone.z)
-      this.scene.add(card.mesh)
-      this.live.set(card.data.uid, card)
-      this.board.place(card, zone.key, 0)
+  /** A drag ended. Dispatch the move, or nothing, then put the lifted card back where the state says. */
+  private onDrop = (card: Card, drop: Drop) => {
+    const uid = card.uid
+    if (drop.kind === 'zone') {
+      if (drop.changed) {
+        this.dispatch({ type: 'move', seat: this.seat, uid, to: drop.key, faceUp: drop.faceUp, defense: drop.defense })
+      }
+    } else if (drop.kind === 'deck') {
+      this.actions.returnToDeck(uid, 'top')
+    } else if (drop.kind === 'hand') {
+      this.actions.toHand(uid)
     }
+    this.bv.resync(this.game)
   }
 
   async init() {
     const q = QUALITY[this.quality]
     const r = this.renderer
-    const deckPromise = loadDemoDeck()
-      .catch((e) => {
-        console.warn('Card catalog unavailable, using placeholders', e)
-        return buildDemoDeck()
-      })
-      .then(async (deck) => {
-        await preloadCardArt([...deck.main, ...deck.extra], r)
-        return deck
-      })
+    const startPromise = loadStartGame().then(async (start) => {
+      await preloadCardArt(start.catalog.values(), r)
+      return start
+    })
     const ruinsPromise = loadLayout()
       .then(createRuins)
       .catch((e) => {
       console.warn('Ruins failed to load', e)
       return new Group()
     })
-    const [stone, grass, deck, ruins] = await Promise.all([
+    const [stone, grass, start, ruins] = await Promise.all([
       loadPBR('stone', 'stone', r, 4, true),
       loadPBR('grass', 'grass', r, 1),
-      deckPromise,
+      startPromise,
       ruinsPromise,
       setupEnvironment(this.scene, r),
     ])
     if (this.disposed) return
-    this.deckCards = shuffle(deck.main)
+    this.catalog = start.catalog
+    this.applyCtx = start.ctx
+    if (start.missing.length) console.warn('Cards missing from the catalog', start.missing)
 
     this.scene.add(createBoard(stone, grass), ruins)
 
@@ -542,27 +377,51 @@ export class App {
 
     this.fx = new PostFX(r, this.scene, this.rig.camera, q)
 
-    this.deckPile = new DeckPile('p1:deck:0', this.deckCards.length)
-    const oppDeck = new DeckPile('p2:deck:0', 40)
-    this.scene.add(this.deckPile.mesh, oppDeck.mesh)
+    for (let seat = 0; seat < start.game.seats.length; seat++) {
+      const key = deckKey(seat)
+      const pile = new DeckPile(key, start.game.zones[key]?.length ?? 0)
+      this.piles.set(key, pile)
+      this.scene.add(pile.mesh)
+    }
     this.board = new BoardState(this.tweens, this.landing)
-    this.seedExtra(deck.extra)
     this.attackFx = new AttackFx(this.tweens, this.board, this.landing)
     this.arrow = new AttackArrow(this.scene, this.loop.invalidate)
     this.loop.add(this.arrow)
+    this.bv = new BoardView({
+      scene: this.scene,
+      tweens: this.tweens,
+      board: this.board,
+      hand: this.hand,
+      piles: this.piles,
+      attackFx: this.attackFx,
+      lookup: (passcode) => this.catalog.get(passcode),
+      create: (uid, info) => {
+        const card = createCardMesh(uid, info)
+        const edit = this.statEdits.get(uid)
+        if (edit) card.setStats(edit.atk, edit.def)
+        return card
+      },
+      localSeat: this.seat,
+      invalidate: this.loop.invalidate,
+      onAttackDone: () => {
+        if (this.game.attack) this.dispatch({ type: 'clearAttack', seat: this.seat })
+      },
+    })
     this.interaction = new HandInteraction({
       canvas: this.canvas,
       camera: this.rig.camera,
-      scene: this.scene,
       hand: this.hand,
-      deck: this.deckPile.mesh,
+      deck: this.piles.get(this.ownDeck)!.mesh,
       board: this.board,
       tweens: this.tweens,
       zones: this.zones,
-      onReturnToDeck: (card) => this.returnToDeck(card, 'top', false),
+      localSeat: this.seat,
+      getGame: () => this.game,
+      lift: (card) => this.bv.lift(card),
+      onDrop: this.onDrop,
+      onPose: (card, faceUp, defense) => this.dispatch({ type: 'setPosition', seat: this.seat, uid: card.uid, faceUp, defense }),
       onContext: this.openContext,
-      onCommit: () => this.record(),
-      onChange: () => this.sync(),
+      onChange: () => this.syncUi(),
       onViewPile: (key) => {
         this.viewing = key
         this.viewer?.open(key)
@@ -571,47 +430,50 @@ export class App {
       onSelectCard: (card) => this.detail?.pin(card),
       onDrag: () => this.refreshShortcuts(),
       onAction: () => this.deselect(),
-      onPlace: (card, key, faceUp, defense) => this.actions.moveTo(card, key, faceUp, defense),
+      onPlace: (uid, key, faceUp, defense) => this.actions.moveTo(uid, key, faceUp, defense),
       onAttack: (attacker, target) => {
-        this.attackFx.attack(attacker, target)
+        this.dispatch({ type: 'declareAttack', seat: this.seat, attacker, target })
         this.deselect()
       },
       onDeclare: (attacker, key, declared) => this.onDeclare(attacker, key, declared),
       onTargeting: (active, attack) => {
         this.setTargetHint(active, attack)
         this.actionBar?.setTargeting(active)
-        if (!active) queueMicrotask(() => this.restoreDeckHold())
       },
     })
     this.actions = new CardActions({
-      scene: this.scene,
-      hand: this.hand,
-      board: this.board,
-      returnToDeck: (card, pos) => this.returnToDeck(card, pos),
-      editStats: (card) => {
+      game: () => this.game,
+      dispatch: this.dispatch,
+      dispatchAll: (actions) => useGameStore.getState().dispatchAll(actions),
+      localSeat: () => this.seat,
+      shuffled: (uids) => shuffle([...uids]),
+      editStats: (uid) => {
+        const card = this.cardByUid(uid)
+        if (!card) return
         const p = this.menuPos
         this.menu.openStats(p.x, p.y, card.data.atk ?? 0, card.data.def ?? 0, (a, d) => {
-          this.record()
+          this.statEdits.set(uid, { atk: a, def: d })
           card.setStats(a, d)
           this.deselect()
-          this.sync()
+          this.loop.invalidate()
         })
       },
-      invalidate: this.loop.invalidate,
-      commit: () => this.record(),
-      onChange: () => this.sync(),
+      closeViewer: () => this.viewer?.close(),
       onAction: () => this.deselect(),
-      requestTarget: (card, play) => {
+      requestTarget: (uid, play) => {
         this.viewer?.close()
-        this.interaction?.beginTarget(card, play)
+        this.interaction?.beginTarget(uid, play)
       },
       inBattle: () => this.inBattle(),
-      attack: (card) => this.declareAttack(card),
+      attack: (uid) => {
+        const card = this.cardByUid(uid)
+        if (card) this.declareAttack(card)
+      },
     })
 
     const ui = document.getElementById('ui') ?? document.body
     this.hud = new Hud(ui, {
-      onLp: (owner, delta) => this.changeLp(owner, delta),
+      onLp: (seat, delta) => this.changeLp(seat, delta),
       phases: PHASES,
       onSetPhase: (i) => this.setPhase(i),
       onEndTurn: () => this.endTurn(),
@@ -624,7 +486,7 @@ export class App {
     this.loop.add(this.glow)
     this.actionBar = new ActionBar(
       ui,
-      (card, play) => this.actions.play(card, play),
+      (card, play) => this.actions.play(card.uid, play),
       () => interaction?.cancelTargeting(),
       (card) => this.declareAttack(card),
     )
@@ -632,7 +494,7 @@ export class App {
       interaction?.setPinned(card)
       this.refreshShortcuts()
       // Selecting a field monster in battle starts the attack declaration.
-      if (card && this.inBattle() && isAttacker(card)) this.declareAttack(card)
+      if (card && this.inBattle() && isAttacker(this.game, card.uid, this.seat)) this.declareAttack(card)
     })
     this.viewer = new PileViewer(ui, (key) => this.pileViews(key), {
       onOpen: () => {
@@ -644,34 +506,28 @@ export class App {
         this.viewing = null
         this.deckPick = null
         this.deselect()
-        if (key === 'p1:deck:0' && !this.skipDeckShuffle && !this.disposed) this.shuffleDeck()
+        if (key === this.ownDeck && !this.skipDeckShuffle && !this.disposed) this.shuffleDeck()
         this.skipDeckShuffle = false
       },
       onCardContext: (view, x, y) => {
         this.menuPos = { x, y }
-        if (this.viewing === 'p1:deck:0') {
-          const data = this.deckCards.find((c) => c.uid === view.uid)
-          if (!data) return
-          this.menu.open(x, y, data.name, this.actions.deckItems(data, (closeFirst) => this.pullDeckCard(view.uid, closeFirst)))
+        if (this.viewing === this.ownDeck) {
+          const data = this.dataOf(view.uid)
+          if (data) this.menu.open(x, y, data.name, this.actions.deckItems(view.uid, data))
           return
         }
         const card = this.cardByUid(view.uid)
         if (card) this.menu.open(x, y, card.data.name, this.actions.pileItems(card))
       },
       onDragOut: (view, ev) => {
-        if (this.viewing === 'p1:deck:0') {
-          const uid = view.uid
-          // Snapshot first, then shuffle, so undo puts the card back in the old order.
-          this.record()
-          shuffle(this.deckCards)
-          const card = this.takeFromDeck(uid)
-          if (!card) {
-            this.sync()
-            return
-          }
+        if (this.viewing === this.ownDeck) {
+          // Shuffle first so the card is taken from a random spot, then drag a mesh made for it.
+          this.shuffleDeck()
+          const card = this.bv.liftFromDeck(this.game, view.uid)
+          if (!card) return
           this.skipDeckShuffle = true
           try {
-            interaction?.beginExternalDrag(card, ev, 'p1:deck:0', false)
+            interaction?.beginExternalDrag(card, ev, this.ownDeck)
           } finally {
             this.viewer?.close()
           }
@@ -686,18 +542,16 @@ export class App {
         }
       },
       onCardHover: (view) => {
-        if (this.viewing === 'p1:deck:0') {
-          const data = view ? (this.deckCards.find((c) => c.uid === view.uid) ?? null) : null
-          this.detail?.previewData(data)
+        if (this.viewing === this.ownDeck) {
+          this.detail?.previewData(view ? this.dataOf(view.uid) : null)
           return
         }
         this.detail?.hover(view ? this.cardByUid(view.uid) : null, true)
       },
       onCardClick: (view) => {
-        if (this.viewing === 'p1:deck:0') {
-          const data = this.deckCards.find((c) => c.uid === view.uid) ?? null
+        if (this.viewing === this.ownDeck) {
           this.deckPick = this.deckPick === view.uid ? null : view.uid
-          this.detail?.stickData(this.deckPick ? data : null)
+          this.detail?.stickData(this.deckPick ? this.dataOf(view.uid) : null)
           this.refreshShortcuts()
           return
         }
@@ -705,7 +559,6 @@ export class App {
         if (card) this.detail?.pin(card)
       },
     })
-    this.hud.setPhase(this.turn, PHASES[0], this.activePlayer)
 
     this.menu.onOpen = () => interaction?.lock()
     this.menu.onClose = () => interaction?.unlock()
@@ -720,8 +573,21 @@ export class App {
     this.onResize()
     this.lights.refreshShadows()
 
+    // Every visual change comes from a store change. One dispatch animates; undo and load snap.
+    this.unsubscribe = useGameStore.subscribe((s, prev) => {
+      this.bv.sync(s.game, prev.game, s.log.length > prev.log.length ? 'animate' : 'jump')
+      this.syncUi()
+    })
+    useGameStore.getState().load(start.game, start.ctx)
+
     this.loop.start()
     this.drawCards(5)
+    // The opening hand isn't an undo step: forget it once it has been drawn.
+    this.timers.push(
+      window.setTimeout(() => {
+        if (!this.disposed) useGameStore.getState().load(this.game, this.applyCtx)
+      }, 5 * 180 + 50),
+    )
 
     if (import.meta.env.DEV) {
       const { setupDebug } = await import('./Debug')
@@ -759,6 +625,8 @@ export class App {
     window.removeEventListener('resize', this.onResize)
     window.removeEventListener('keydown', this.onKey)
     this.timers.forEach(clearTimeout)
+    this.unsubscribe?.()
+    this.bv?.dispose()
     this.interaction?.dispose()
     this.menu.dispose()
     this.hud?.dispose()

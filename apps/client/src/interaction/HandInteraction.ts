@@ -1,29 +1,44 @@
-import { Matrix4, type Mesh, type PerspectiveCamera, Raycaster, type Scene, Vector2, Vector3 } from 'three'
+import { Matrix4, type Mesh, type PerspectiveCamera, Raycaster, Vector2, Vector3 } from 'three'
+import type { GameState, Seat } from '@duelist/shared'
 import type { Tweens } from '@/anim/Tweens'
 import type { Card } from '@/cards/Card'
 import type { Hand } from '@/cards/Hand'
 import type { Updatable } from '@/core/Loop'
 import { boardQuat, type BoardState } from '@/state/BoardState'
 import type { Zones } from '@/scene/Zones'
-import { targetZoneKeys, isPendulum, type PlayAction } from '@/interaction/CardActions'
-import { getZoneByKey, isViewPile, legalOrientation, zoneAt, zonePoses, ZONES } from '@/scene/ZoneLayout'
+import { locate, targetZoneKeys, isPendulum, type PlayAction } from '@/interaction/CardActions'
+import { deckKey, getZoneByKey, isViewPile, legalOrientation, zoneAt, zonePoses, ZONES } from '@/scene/ZoneLayout'
 import { CARD_H } from '@/config'
+
+/** How a drag ended. The card is not moved by the interaction: the owner dispatches an action, or does nothing. */
+export type Drop =
+  /** Dropped on a zone. `changed` is false when it landed back where it started in the same pose. */
+  | { kind: 'zone'; key: string; faceUp: boolean; defense: boolean; changed: boolean }
+  /** Dropped on the local deck, or a deck card that was dragged out and let go in the open. */
+  | { kind: 'deck' }
+  /** A board card dropped on the hand. */
+  | { kind: 'hand' }
+  /** Dropped nowhere useful. Nothing is dispatched and the card goes back. */
+  | { kind: 'cancel' }
 
 interface Options {
   canvas: HTMLCanvasElement
   camera: PerspectiveCamera
-  scene: Scene
   hand: Hand
   deck: Mesh
   board: BoardState
   tweens: Tweens
   zones: Zones
-  /** Card dropped on your own deck zone. */
-  onReturnToDeck: (card: Card) => void
+  localSeat: Seat
+  getGame: () => GameState
+  /** Take the card out of its zone or the hand for the drag. It is put back by the next resync. */
+  lift: (card: Card) => void
+  /** The drag ended. `fromZone` is where it was picked up (null from the hand). */
+  onDrop: (card: Card, drop: Drop, from: { hand: boolean; zone: string | null }) => void
+  /** The pose-cycle key changed a card's pose without a drag. */
+  onPose: (card: Card, faceUp: boolean, defense: boolean) => void
   /** `above` anchors the menu over the point instead of below the cursor. */
   onContext: (target: ContextTarget, x: number, y: number, above: boolean) => void
-  /** Called once a drag actually starts, before the card is moved. */
-  onCommit: () => void
   onChange: () => void
   onViewPile: (key: string) => void
   /** The card under the pointer, or null. Face-down cards are still passed through. */
@@ -34,12 +49,12 @@ interface Options {
   onDrag?: (active: boolean) => void
   /** A drag dropped the card somewhere new, or changed its pose. */
   onAction?: () => void
-  /** Player confirmed a summon, set, or activate by clicking a zone. */
-  onPlace?: (card: Card, key: string, faceUp: boolean, defense: boolean) => void
-  /** Player picked a monster to attack. */
-  onAttack?: (attacker: Card, target: Card | null) => void
+  /** Player confirmed a summon, set, or activate by clicking a zone. The card may still be in the deck. */
+  onPlace?: (uid: string, key: string, faceUp: boolean, defense: boolean) => void
+  /** Player picked a monster to attack (a card uid, or null for a direct attack). */
+  onAttack?: (attacker: string, target: string | null) => void
   /** An attack target was declared (zone key), or cleared. Drives the arrow and tooltip. */
-  onDeclare?: (attacker: Card | null, key: string | null, declared: boolean) => void
+  onDeclare?: (attacker: string | null, key: string | null, declared: boolean) => void
   /** Targeting mode started or ended. `attack` is true for battle targeting. */
   onTargeting?: (active: boolean, attack: boolean) => void
 }
@@ -48,7 +63,8 @@ interface Target {
   attack: boolean
   /** Attack only: the zone declared as target, awaiting confirmation. */
   declared: string | null
-  card: Card
+  /** The card to place or the attacker. A card still in the deck has no mesh, so this is its uid. */
+  uid: string
   faceUp: boolean
   defense: boolean
   keys: string[]
@@ -76,8 +92,6 @@ interface Drag {
 const DRAG_Y = 0.7
 const DRAG_THRESHOLD = 5
 const HAND_DROP_NDC_Y = -0.6
-const OWN_DECK = 'p1:deck:0'
-
 /** Pointer input: hand hover, deck click, and dragging cards between hand and zones. */
 export class HandInteraction implements Updatable {
   private ndc = new Vector2()
@@ -219,24 +233,25 @@ export class HandInteraction implements Updatable {
   }
 
   /** Highlight the legal zones and wait for a click. Esc, right-click, or a click elsewhere cancels. */
-  beginTarget(card: Card, play: PlayAction) {
+  beginTarget(uid: string, play: PlayAction) {
     const restart = this.targeting !== null
     this.targeting = null
     this.opts.zones.setAllHighlights(0)
-    const owner = card.zoneKey?.startsWith('p2') ? 'p2' : 'p1'
-    const keys = targetZoneKeys(owner, play.zone, (key) => this.opts.board.cardsIn(key).length === 0)
-    this.targeting = { attack: false, card, faceUp: play.faceUp, defense: play.defense, keys, hot: null, declared: null }
+    const game = this.opts.getGame()
+    const owner = locate(game, uid, this.opts.localSeat).owner
+    const keys = targetZoneKeys(owner, play.zone, (key) => (game.zones[key]?.length ?? 0) === 0)
+    this.targeting = { attack: false, uid, faceUp: play.faceUp, defense: play.defense, keys, hot: null, declared: null }
     for (const key of keys) this.opts.zones.setHighlight(key, 0.7)
     if (!restart) this.lock()
     this.opts.onTargeting?.(true, false)
   }
 
   /** Highlight the zones holding attackable monsters and wait for a click. */
-  beginAttack(card: Card, keys: string[]) {
+  beginAttack(uid: string, keys: string[]) {
     const restart = this.targeting !== null
     this.targeting = null
     this.opts.zones.setAllHighlights(0)
-    this.targeting = { attack: true, card, faceUp: card.faceUp, defense: card.defense, keys, hot: null, declared: null }
+    this.targeting = { attack: true, uid, faceUp: true, defense: false, keys, hot: null, declared: null }
     for (const key of keys) this.opts.zones.setHighlight(key, 0.7)
     if (!restart) this.lock()
     this.opts.onTargeting?.(true, true)
@@ -276,7 +291,7 @@ export class HandInteraction implements Updatable {
     if (!t) return
     const key = this.zoneUnder()
     const hit = key && t.keys.includes(key) ? key : null
-    const { card, faceUp, defense } = t
+    const { uid, faceUp, defense } = t
     if (!hit) {
       this.cancelTarget()
       return
@@ -287,25 +302,25 @@ export class HandInteraction implements Updatable {
         if (t.declared) this.opts.zones.setHighlight(t.declared, 0.7)
         t.declared = hit
         this.opts.zones.setHighlight(hit, 1)
-        this.opts.onDeclare?.(card, hit, true)
+        this.opts.onDeclare?.(uid, hit, true)
         return
       }
       // Step 2: confirm.
-      const list = this.opts.board.cardsIn(hit)
+      const list = this.opts.getGame().zones[hit] ?? []
       const victim = list[list.length - 1] ?? null
       this.endTarget()
-      this.opts.onAttack?.(card, victim)
+      this.opts.onAttack?.(uid, victim)
       return
     }
     this.endTarget()
-    this.opts.onPlace?.(card, hit, faceUp, defense)
+    this.opts.onPlace?.(uid, hit, faceUp, defense)
   }
 
   /**
    * Board drag started outside the canvas. The pointer is already past the drag threshold.
-   * `fromZone` overrides the card's zone (a deck card has none). `commit` snapshots first.
+   * `fromZone` overrides the card's zone (a deck card has none).
    */
-  beginExternalDrag(card: Card, e: PointerEvent, fromZone: string | null = card.zoneKey, commit = true) {
+  beginExternalDrag(card: Card, e: PointerEvent, fromZone: string | null = card.zoneKey) {
     this.setNdc(e)
     const drag = this.newDrag(card, false, fromZone, e)
     this.drag = drag
@@ -314,11 +329,15 @@ export class HandInteraction implements Updatable {
     } catch {
       // The dialog then closes, so later moves still hit the canvas.
     }
-    this.startDrag(drag, commit)
+    this.startDrag(drag)
     this.updateDrag(drag)
   }
 
-  /** Drop an in-progress drag without moving the card. Undo restores the board. */
+  private get ownDeck() {
+    return deckKey(this.opts.localSeat)
+  }
+
+  /** Drop an in-progress drag without dispatching anything. The next resync puts the card back. */
   cancelDrag() {
     const active = this.drag?.active ?? false
     this.drag = null
@@ -342,7 +361,7 @@ export class HandInteraction implements Updatable {
   private setDeckHover(v: boolean) {
     if (v === this.deckHover) return
     this.deckHover = v
-    this.opts.zones.setHighlight(OWN_DECK, v ? 0.7 : 0)
+    this.opts.zones.setHighlight(this.ownDeck, v ? 0.7 : 0)
   }
 
   // ---- events ----
@@ -404,10 +423,8 @@ export class HandInteraction implements Updatable {
     e.preventDefault()
     const i = poses.findIndex((p) => p.faceUp === card.faceUp && p.defense === card.defense)
     const next = poses[(i + 1) % poses.length]
-    this.opts.onCommit()
-    card.faceUp = next.faceUp
-    card.defense = next.defense
-    this.opts.board.layoutZone(card.zoneKey, 0.2)
+    // The state changes through the owner; the card re-poses when the store notifies.
+    this.opts.onPose(card, next.faceUp, next.defense)
     this.hovered = null
     this.publishHover(card)
     this.opts.onChange()
@@ -441,7 +458,7 @@ export class HandInteraction implements Updatable {
     this.publishHover(card)
     this.setDeckHover(overDeck)
     const pile = !card && !overDeck && idx < 0 ? this.zoneUnder() : null
-    const overPile = !!pile && isViewPile(pile)
+    const overPile = !!pile && isViewPile(pile, this.opts.localSeat)
     this.opts.canvas.style.cursor = idx >= 0 || overDeck || card || overPile ? 'pointer' : 'default'
   }
 
@@ -461,7 +478,7 @@ export class HandInteraction implements Updatable {
       this.drop(drag)
       return
     }
-    if (drag?.fromZone && isViewPile(drag.fromZone)) {
+    if (drag?.fromZone && isViewPile(drag.fromZone, this.opts.localSeat)) {
       this.opts.onViewPile(drag.fromZone)
       return
     }
@@ -472,11 +489,11 @@ export class HandInteraction implements Updatable {
       return
     }
     if (this.deckAt()) {
-      this.opts.onViewPile(OWN_DECK)
+      this.opts.onViewPile(this.ownDeck)
       return
     }
     const key = this.zoneUnder()
-    if (key && isViewPile(key)) this.opts.onViewPile(key)
+    if (key && isViewPile(key, this.opts.localSeat)) this.opts.onViewPile(key)
     else this.opts.onSelectCard?.(null)
   }
 
@@ -492,22 +509,20 @@ export class HandInteraction implements Updatable {
 
   // ---- drag ----
 
-  private startDrag(drag: Drag, commit = true) {
-    const { hand, board, scene, tweens, zones } = this.opts
+  private startDrag(drag: Drag) {
+    const { tweens, zones } = this.opts
     const card = drag.card
     drag.active = true
-    if (commit) this.opts.onCommit()
     this.publishHover(null)
     this.setDeckHover(false)
+    // From here the card is a temporary visual. The game state doesn't change until the drop.
+    this.opts.lift(card)
     if (drag.fromHand) {
-      hand.remove(card)
-      scene.attach(card.mesh)
       card.faceUp = true
       card.defense = false
     } else {
       const from = drag.fromZone ?? ''
       const reveal = !card.faceUp && (from.includes(':extra:') || from.includes(':banished:'))
-      board.remove(card)
       if (reveal) {
         card.faceUp = true
         card.defense = false
@@ -576,33 +591,31 @@ export class HandInteraction implements Updatable {
   }
 
   private drop(drag: Drag) {
-    const { hand, board, zones, onReturnToDeck } = this.opts
+    const { zones } = this.opts
     const card = drag.card
     zones.setAllHighlights(0)
     this.opts.canvas.style.cursor = 'default'
 
     const poseChanged = card.faceUp !== drag.faceUp || card.defense !== drag.defense
-    const fromDeck = drag.fromZone === OWN_DECK
-    let acted = false
-    if (drag.over === OWN_DECK) {
-      onReturnToDeck(card)
+    const fromDeck = drag.fromZone === this.ownDeck
+    let drop: Drop
+    if (drag.over === this.ownDeck) {
+      drop = { kind: 'deck' }
     } else if (drag.over && !drag.over.endsWith(':deck:0')) {
-      acted = drag.over !== drag.fromZone || poseChanged
-      board.place(card, drag.over, 0.28, { from: drag.fromHand ? null : drag.fromZone })
+      const changed = drag.over !== drag.fromZone || poseChanged
+      drop = { kind: 'zone', key: drag.over, faceUp: card.faceUp, defense: card.defense, changed }
     } else if (!drag.over && this.ndc.y < HAND_DROP_NDC_Y) {
-      acted = !drag.fromHand
-      hand.add(card, 0.35)
+      drop = drag.fromHand ? { kind: 'cancel' } : { kind: 'hand' }
     } else if (fromDeck) {
-      onReturnToDeck(card)
-    } else if (drag.fromZone) {
-      board.place(card, drag.fromZone, 0.28, { from: drag.fromZone })
+      drop = { kind: 'deck' }
     } else {
-      hand.add(card, 0.35)
+      drop = { kind: 'cancel' }
     }
     this.publishHover(null)
     this.opts.onDrag?.(false)
+    this.opts.onDrop(card, drop, { hand: drag.fromHand, zone: drag.fromZone })
     this.opts.onChange()
-    if (acted) this.opts.onAction?.()
+    if (drop.kind !== 'cancel' && !(drop.kind === 'zone' && !drop.changed)) this.opts.onAction?.()
   }
 
   /** Raise the card under the pointer, or the pinned card when the pointer is elsewhere. */

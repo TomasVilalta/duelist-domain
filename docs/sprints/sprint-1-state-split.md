@@ -1,4 +1,4 @@
-# Sprint 1: Separate game state from rendering
+﻿# Sprint 1: Separate game state from rendering
 
 Roadmap step 1. See [roadmap-v0.md](../roadmap-v0.md), and decisions D4, D5 and D6 in [decisions.md](../decisions.md).
 
@@ -12,10 +12,11 @@ Roadmap step 1. See [roadmap-v0.md](../roadmap-v0.md), and decisions D4, D5 and 
 | T4 `Action` and `apply()` | done, review fixes applied |
 | T5 deck loading and `parseYdk` | done (not wired into the app until T6) |
 | T6 Zustand game store | done |
-| T7 card views | built, in review ([#5](https://github.com/TomasVilalta/duelist-domain/pull/5), not wired into `App` until T8) |
-| T8 to T10 | not started |
+| T7 card views | done |
+| T8 reconcile | built, in review ([#6](https://github.com/TomasVilalta/duelist-domain/pull/6), wired into `App` by T9; merge together) |
+| T9 to T10 | not started |
 
-Next: T8 (reconcile with animation).
+Next: T9 (interactions dispatch actions).
 
 ## Goal
 Game state becomes a plain, serializable `GameState` in `@duelist/shared`, changed only by `apply(state, action)`. The Three.js client renders from a Zustand store holding that state. Local hotseat play must work the same as it does today.
@@ -198,7 +199,7 @@ Replace `loadDemoDeck`/`buildDemoDeck` with a function that takes passcode lists
 
 ---
 
-## T7: Rendering from the state, part 1 (card views) (built, in review: https://github.com/TomasVilalta/duelist-domain/pull/5)
+## T7: Rendering from the state, part 1 (card views) (done)
 Create `CardViews`: a `Map<uid, Card>` that creates a `Card` mesh the first time a uid appears in a rendered zone and disposes it when the card is no longer rendered. `Card` loses its game fields (`zoneKey`, `faceUp`, `defense` and counters become derived from the state) and keeps only the visual state set from `CardState`.
 
 **DoD**
@@ -211,7 +212,7 @@ Create `CardViews`: a `Map<uid, Card>` that creates a `Card` mesh the first time
 
 ---
 
-## T8: Rendering from the state, part 2 (reconciling with animation)
+## T8: Rendering from the state, part 2 (reconciling with animation) (built, in review: https://github.com/TomasVilalta/duelist-domain/pull/6)
 A `reconcile(prev, next)` function runs on every store change:
 - It compares zone lists to find, for each uid, a move (`fromKey → toKey`), a change in face-up or position, or a counter change.
 - It calls the existing `BoardState.place()` and `layoutZone()`, `Hand.add()`/`remove()`/`layout()` and `DeckPile.setCount()`, so the current animations (`LandingFx`, tweens, the deck shuffle animation) keep working.
@@ -236,7 +237,7 @@ A `reconcile(prev, next)` function runs on every store change:
 
 ---
 
-## T9: Interactions dispatch Actions
+## T9: Interactions dispatch Actions (built, in review: https://github.com/TomasVilalta/duelist-domain/pull/7)
 Rewire `CardActions`, `HandInteraction` and the deck/pile handlers in `App.ts` (`drawCard`, `millCard`, `shuffleDeck`, `returnToDeck`, `playFromDeck`, `handFromDeck`, `changeLp`, `setPhase`, `endTurn`, `declareAttack`) so they build `Action`s and call `dispatch`. `shuffle` creates its random order on the client for now, with a `TODO(server)` marker.
 - `targetZoneKeys`, `attackTargetKeys` and `isAttacker` read from `GameState` and take a `seat` instead of `'p1' | 'p2'`.
 - Drag and drop: during the drag the card is a temporary visual. On drop, the client dispatches `move` (with `faceUp`/`defense` from the chosen pose), and on cancel nothing is dispatched.

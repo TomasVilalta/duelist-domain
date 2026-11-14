@@ -24,6 +24,8 @@ export function boardQuat(faceUp: boolean, defense: boolean, rotY: number): Quat
 /** Which cards are in which zone. Rules are not enforced; any zone can hold any number of cards. */
 export class BoardState {
   private zones = new Map<string, Card[]>()
+  /** Which zone list each card is in. */
+  private at = new Map<Card, string>()
   private tweens: Tweens
   private landingFx: LandingFx | null
   private hovered: Card | null = null
@@ -49,6 +51,7 @@ export class BoardState {
     this.busy.clear()
     this.hovered = null
     this.zones.clear()
+    this.at.clear()
   }
 
   meshes(): Mesh[] {
@@ -62,23 +65,31 @@ export class BoardState {
     if (card === this.hovered) return
     const prev = this.hovered
     this.hovered = card
-    if (prev?.zoneKey) this.layoutZone(prev.zoneKey, 0.15)
-    if (card?.zoneKey) this.layoutZone(card.zoneKey, 0.15)
+    const prevKey = prev && this.at.get(prev)
+    const key = card && this.at.get(card)
+    if (prevKey) this.layoutZone(prevKey, 0.15)
+    if (key) this.layoutZone(key, 0.15)
+  }
+
+  /** The zone this layout currently holds the card in. Independent of `card.zoneKey`, which is derived from the game state. */
+  keyOf(card: Card): string | null {
+    return this.at.get(card) ?? null
   }
 
   isTop(card: Card): boolean {
-    const list = card.zoneKey ? this.zones.get(card.zoneKey) : undefined
+    const key = this.at.get(card)
+    const list = key ? this.zones.get(key) : undefined
     return !!list && list[list.length - 1] === card
   }
 
   remove(card: Card) {
-    const key = card.zoneKey
+    const key = this.at.get(card)
     if (!key) return
+    this.at.delete(card)
     this.stopLanding(card)
     if (this.hovered === card) this.hovered = null
     const list = this.zones.get(key)
     if (list) list.splice(list.indexOf(card), 1)
-    card.zoneKey = null
     card.covered = false
     this.layoutZone(key, 0.15)
   }
@@ -87,13 +98,14 @@ export class BoardState {
    * `origin` is set when the card is arriving from the hand (`from: null`), a pile, or the deck.
    * Field-to-field moves pass a field key and get no landing animation.
    */
-  place(card: Card, key: string, dur = 0.28, origin?: { from: string | null }) {
+  place(card: Card, key: string, dur = 0.28, origin?: { from: string | null }, index?: number) {
     const from = origin?.from
     this.remove(card)
     let list = this.zones.get(key)
     if (!list) this.zones.set(key, (list = []))
-    list.push(card)
-    card.zoneKey = key
+    // `index` counts from the bottom, like the game state. Omitted means the top.
+    list.splice(index === undefined ? list.length : Math.max(0, Math.min(index, list.length)), 0, card)
+    this.at.set(card, key)
     const zone = getZoneByKey(key)
     const fit = zone ? legalOrientation(zone.id.type, card.faceUp, card.defense) : null
     const landing = origin && fit ? landingFor(key, from ?? null, fit.faceUp, fit.defense) : null
@@ -107,7 +119,8 @@ export class BoardState {
     }
     this.landingFx.play(card, landing, pose, () => {
       this.busy.delete(card)
-      if (card.zoneKey) this.layoutZone(card.zoneKey, 0.12)
+      const at = this.at.get(card)
+      if (at) this.layoutZone(at, 0.12)
     })
   }
 
@@ -115,23 +128,11 @@ export class BoardState {
     const zone = getZoneByKey(key)
     const list = this.zones.get(key)
     if (!zone || !list) return
-    // Extra deck: Pendulum monsters stay face-up on top. Everything else is face-down.
-    if (zone.id.type === 'extra') {
-      for (const card of list) {
-        card.faceUp = card.data.type?.toLowerCase().includes('pendulum') ?? false
-        card.defense = false
-      }
-    }
-    // Extra deck and banished: face-up cards stay above every face-down card.
-    if (zone.id.type === 'extra' || zone.id.type === 'banished') {
-      list.sort((a, b) => Number(a.faceUp) - Number(b.faceUp))
-    }
+    // Order and pose come from the game state (`apply()` keeps face-up cards above face-down ones in the
+    // extra deck and banished pile, and forces legal poses). This only lays the cards out.
     const count = list.length
     const pile = (zone.id.type === 'monster' || zone.id.type === 'emz') && count >= 2
     list.forEach((card, i) => {
-      const fit = legalOrientation(zone.id.type, card.faceUp, card.defense)
-      card.faceUp = fit.faceUp
-      card.defense = fit.defense
       // Only the top monster shows ATK, level, and counters. Cards under it are materials.
       card.covered = pile && i < count - 1
       if (this.busy.has(card)) return
@@ -159,7 +160,8 @@ export class BoardState {
   /** Hand a held card back to the layout. */
   letGo(card: Card) {
     if (!this.busy.delete(card)) return
-    if (card.zoneKey) this.layoutZone(card.zoneKey, 0.15)
+    const at = this.at.get(card)
+    if (at) this.layoutZone(at, 0.15)
   }
 
   private stopLanding(card: Card) {
@@ -170,7 +172,7 @@ export class BoardState {
 
   /** Flat pose on the zone, without the hover lift. */
   private restPose(card: Card): LandingPose | null {
-    const key = card.zoneKey
+    const key = this.at.get(card)
     const zone = key ? getZoneByKey(key) : undefined
     const list = key ? this.zones.get(key) : undefined
     if (!zone || !list) return null

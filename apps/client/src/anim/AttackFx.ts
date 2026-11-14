@@ -23,11 +23,17 @@ export class AttackFx {
     this.landing = landing
   }
 
-  /** `target` null is a direct attack. */
-  attack(attacker: Card, target: Card | null) {
-    if (this.running.has(attacker)) return
+  /** `target` null is a direct attack. `onDone` runs when the attacker is back home, or at once if there is nothing to animate. */
+  attack(attacker: Card, target: Card | null, onDone?: () => void) {
+    if (this.running.has(attacker)) {
+      onDone?.()
+      return
+    }
     const home = this.board.hold(attacker)
-    if (!home) return
+    if (!home) {
+      onDone?.()
+      return
+    }
     const struck = target ? this.board.hold(target) : null
     this.running.add(attacker)
 
@@ -56,6 +62,7 @@ export class AttackFx {
               onDone: () => {
                 this.running.delete(attacker)
                 this.board.letGo(attacker)
+                onDone?.()
               },
             })
           },

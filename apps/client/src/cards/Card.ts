@@ -91,12 +91,14 @@ export function getSleeveMaterial() {
 /** `CreateView` for `CardViews`. */
 export function createCardMesh(uid: string, info: CardInfo): Card {
   // TODO(T10): `CardData.uid` becomes the string uid.
-  return new Card({ ...info, uid: Number(uid.slice(1)) })
+  return new Card({ ...info, uid: Number(uid.slice(1)) }, uid)
 }
 
 export class Card {
   readonly mesh: Mesh
   readonly data: CardData
+  /** The game's card uid (`"c17"`), the key into `GameState.cards`. */
+  readonly uid: string
   /**
    * Derived from `CardState` and set by `applyState()` (via `CardViews`).
    * The pre-store interaction code still writes them directly until T9 rewires it to dispatch actions.
@@ -115,8 +117,9 @@ export class Card {
   /** Pendulum scale. Shown face-up in a spell/trap zone. */
   private scaleMark: Mesh | null = null
 
-  constructor(data: CardData) {
+  constructor(data: CardData, uid = `c${data.uid}`) {
     this.data = data
+    this.uid = uid
     const { geometry, back } = getSharedCardResources()
     // Unlit, but scaled down so the white card frame stays under the bloom threshold.
     const front = new MeshBasicMaterial({
@@ -234,8 +237,10 @@ export class Card {
 
   /** Copies the visual fields from the game state. */
   applyState(state: CardState, zoneKey: string, covered: boolean) {
-    this.zoneKey = zoneKey
-    this.faceUp = state.faceUp
+    // The hand is shown to its owner: face-up, and with no zone key (it isn't a board zone).
+    const inHand = parseZoneKey(zoneKey)?.type === 'hand'
+    this.zoneKey = inHand ? null : zoneKey
+    this.faceUp = inHand || state.faceUp
     this.defense = state.defense
     this.covered = covered
     if (state.counters !== this.counters) this.setCounters(state.counters)

@@ -5,13 +5,13 @@ const DRAG_CARD_WIDTHS = 1.5
 
 function title(key: string, n: number): string {
   const [owner, type] = key.split(':')
-  const who = owner === 'p1' ? 'You' : 'Opponent'
+  const who = owner === 's0' ? 'You' : 'Opponent'
   return `${who} · ${NAMES[type] ?? type} (${n})`
 }
 
 /** One card in a pile dialog. Deck entries have no mesh until an action takes them. */
 export interface PileView {
-  uid: number
+  uid: string
   name: string
   image?: string
   faceUp: boolean
@@ -44,8 +44,8 @@ export class PileViewer {
   private grid: HTMLDivElement
   private titleEl: HTMLDivElement
   private key: string | null = null
-  private selected: number | null = null
-  private cells = new Map<number, HTMLElement>()
+  private selected: string | null = null
+  private cells = new Map<string, HTMLElement>()
   private gesture: Gesture | null = null
   private getCards: (key: string) => PileView[]
   private hooks: Hooks
@@ -117,7 +117,7 @@ export class PileViewer {
   }
 
   /** Highlight the clicked pile card. `null` clears it. */
-  setSelected(uid: number | null) {
+  setSelected(uid: string | null) {
     this.selected = uid
     this.markSelected()
   }

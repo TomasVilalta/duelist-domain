@@ -1,11 +1,7 @@
-import type { Scene } from 'three'
+import { findCard, parseZoneKey, zoneKey, type Action, type CardKind, type GameState, type Seat, type ZoneType } from '@duelist/shared'
 import type { Card } from '@/cards/Card'
-import type { Hand } from '@/cards/Hand'
-import type { CardKind } from '@duelist/shared'
 import type { CardData } from '@/data/demoDeck'
-import type { BoardState } from '@/state/BoardState'
 import type { MenuItem } from '@/ui/ContextMenu'
-import { getZoneByKey, type ZoneType } from '@/scene/ZoneLayout'
 
 export type DeckPos = 'top' | 'bottom' | 'shuffle'
 
@@ -77,27 +73,39 @@ export function primaryPlays(card: CardInfo): PlayAction[] {
  * row when they are all full, so the card can be stacked. Field spells only
  * ever offer the field zone.
  */
-export function targetZoneKeys(owner: 'p1' | 'p2', zone: PlayZone, isEmpty: (key: string) => boolean): string[] {
-  if (zone === 'field') return [`${owner}:field:0`]
+export function targetZoneKeys(owner: Seat, zone: PlayZone, isEmpty: (key: string) => boolean): string[] {
+  if (zone === 'field') return [`s${owner}:field:0`]
   if (zone === 'pendulum') {
-    const keys = [`${owner}:spell:0`, `${owner}:spell:4`]
+    const keys = [`s${owner}:spell:0`, `s${owner}:spell:4`]
     const empty = keys.filter(isEmpty)
     return empty.length > 0 ? empty : keys
   }
-  const keys = Array.from({ length: 5 }, (_, i) => `${owner}:${zone}:${i}`)
+  const keys = Array.from({ length: 5 }, (_, i) => `s${owner}:${zone}:${i}`)
   const empty = keys.filter(isEmpty)
   return empty.length > 0 ? empty : keys
 }
 
-/** Your monsters on the field. The extra monster zones are shared but count as yours for now. */
-export function isAttacker(card: Card): boolean {
-  const key = card.zoneKey ?? ''
-  return key.startsWith('p1:monster:') || key.startsWith('shared:emz:')
+/** `seat`'s monsters on the field. The extra monster zones are shared but count as yours for now. */
+export function isAttacker(game: GameState, uid: string, seat: Seat): boolean {
+  const at = findCard(game, uid)
+  const id = at ? parseZoneKey(at.key) : null
+  return !!id && ((id.type === 'monster' && id.owner === seat) || id.type === 'emz')
+}
+
+/** The seat that `seat` attacks. */
+export function opponentOf(game: GameState, seat: Seat): Seat {
+  return (seat + 1) % game.seats.length
+}
+
+/** Every monster zone of the opponent, in order. */
+export function opposingMonsterKeys(game: GameState, seat: Seat): string[] {
+  const owner = opponentOf(game, seat)
+  return Array.from({ length: 5 }, (_, i) => zoneKey({ owner, type: 'monster', index: i }))
 }
 
 /** Opponent monster zones that hold a card. Empty means a direct attack. */
-export function attackTargetKeys(board: BoardState): string[] {
-  return Array.from({ length: 5 }, (_, i) => `p2:monster:${i}`).filter((key) => board.cardsIn(key).length > 0)
+export function attackTargetKeys(game: GameState, seat: Seat): string[] {
+  return opposingMonsterKeys(game, seat).filter((key) => (game.zones[key]?.length ?? 0) > 0)
 }
 
 /** Plays that don't match the card's kind. Still allowed, listed last. */
@@ -117,28 +125,34 @@ function otherPlays(card: CardInfo): PlayAction[] {
 }
 
 interface Deps {
-  scene: Scene
-  hand: Hand
-  board: BoardState
-  returnToDeck: (card: Card, pos: DeckPos) => void
-  editStats: (card: Card) => void
-  invalidate: () => void
-  /** Snapshot the board before a menu action. */
-  commit: () => void
-  onChange: () => void
+  game: () => GameState
+  dispatch: (action: Action) => void
+  /** Several actions as a single undo step. */
+  dispatchAll: (actions: Action[]) => void
+  localSeat: () => Seat
+  /** A random order for a shuffle. The client chooses it for now. */
+  shuffled: (uids: string[]) => string[]
+  editStats: (uid: string) => void
+  /** Close the pile dialog, which shuffles the deck if it was the deck dialog. */
+  closeViewer: () => void
   /** A card action finished: summon, move, position change, and the like. */
   onAction: () => void
   /** Summon, set, or activate: the player picks the zone. */
-  requestTarget: (card: Card, action: PlayAction) => void
+  requestTarget: (uid: string, action: PlayAction) => void
   /** True during the Battle phase. */
   inBattle: () => boolean
   /** Pick a target, or attack directly when the opponent has no monsters. */
-  attack: (card: Card) => void
+  attack: (uid: string) => void
 }
 
-type Owner = 'p1' | 'p2'
+/** Where a card is, and the seat that owns that zone (the local seat for shared zones). */
+export function locate(game: GameState, uid: string, local: Seat) {
+  const at = findCard(game, uid)
+  const id = at ? parseZoneKey(at.key) : null
+  return { key: at?.key ?? null, type: id?.type, owner: typeof id?.owner === 'number' ? id.owner : local }
+}
 
-/** Manual card actions. Nothing is validated: every action is always allowed. */
+/** Manual card actions. Nothing is validated: every action is always allowed. Each one dispatches to the game store. */
 export class CardActions {
   private d: Deps
 
@@ -146,20 +160,24 @@ export class CardActions {
     this.d = deps
   }
 
-  private ownerOf(card: Card): Owner {
-    return card.zoneKey?.startsWith('p2') ? 'p2' : 'p1'
+  private get seat() {
+    return this.d.localSeat()
+  }
+
+  private zone(owner: Seat, type: ZoneType) {
+    return zoneKey({ owner, type, index: 0 })
   }
 
   /** Ask the player to click a zone for this play. */
-  play(card: Card, action: PlayAction) {
-    this.d.requestTarget(card, action)
+  play(uid: string, action: PlayAction) {
+    this.d.requestTarget(uid, action)
   }
 
   /** Primary plays, then off-type plays, each group closed by a separator. */
-  private playItems(card: Card): MenuItem[] {
+  private playItems(card: CardInfo, uid: string): MenuItem[] {
     const item = (play: PlayAction): MenuItem => ({
       label: play.label,
-      action: () => this.play(card, play),
+      action: () => this.play(uid, play),
     })
     return [
       ...primaryPlays(card).map(item),
@@ -169,108 +187,93 @@ export class CardActions {
     ]
   }
 
-  /** Detach from the hand (if it's there) so the card can be placed in the world. */
-  private release(card: Card) {
-    if (this.d.hand.cards.includes(card)) {
-      this.d.hand.remove(card)
-      this.d.scene.attach(card.mesh)
+  moveTo(uid: string, key: string, faceUp: boolean, defense: boolean) {
+    this.d.dispatch({ type: 'move', seat: this.seat, uid, to: key, faceUp, defense })
+    this.d.onAction()
+  }
+
+  flip(uid: string) {
+    this.d.dispatch({ type: 'flip', seat: this.seat, uid })
+    this.d.onAction()
+  }
+
+  togglePosition(uid: string) {
+    const card = this.d.game().cards[uid]
+    if (!card) return
+    this.setPosition(uid, card.faceUp, !card.defense)
+  }
+
+  setPosition(uid: string, faceUp: boolean, defense: boolean) {
+    this.d.dispatch({ type: 'setPosition', seat: this.seat, uid, faceUp, defense })
+    this.d.onAction()
+  }
+
+  toHand(uid: string) {
+    this.moveTo(uid, this.zone(this.seat, 'hand'), false, false)
+  }
+
+  addCounter(uid: string, delta: number) {
+    this.d.dispatch({ type: 'addCounter', seat: this.seat, uid, delta })
+    this.d.onAction()
+  }
+
+  /** Put a card back into the local deck: on top, on the bottom, or shuffled in. */
+  returnToDeck(uid: string, pos: DeckPos) {
+    const seat = this.seat
+    const key = this.zone(seat, 'deck')
+    const to = { type: 'move', seat, uid, to: key, faceUp: false, defense: false } as const
+    if (pos === 'bottom') {
+      this.d.dispatch({ ...to, index: 0 })
+    } else if (pos === 'top') {
+      this.d.dispatch(to)
+    } else {
+      // Move on top, then shuffle the new pile: one undo step.
+      const pile = (this.d.game().zones[key] ?? []).filter((u) => u !== uid)
+      // TODO(server): the server will choose the order.
+      this.d.dispatchAll([to, { type: 'shuffle', seat, zone: key, order: this.d.shuffled([...pile, uid]) }])
     }
-  }
-
-  moveTo(card: Card, key: string, faceUp: boolean, defense: boolean) {
-    this.d.commit()
-    const from = this.d.hand.cards.includes(card) ? null : card.zoneKey
-    this.release(card)
-    card.faceUp = faceUp
-    card.defense = defense
-    this.d.board.place(card, key, 0.28, { from })
     this.d.onAction()
-    this.d.onChange()
-  }
-
-  flip(card: Card) {
-    card.faceUp = !card.faceUp
-    this.relayout(card)
-    this.d.onAction()
-  }
-
-  togglePosition(card: Card) {
-    card.defense = !card.defense
-    this.relayout(card)
-    this.d.onAction()
-  }
-
-  setPosition(card: Card, faceUp: boolean, defense: boolean) {
-    this.d.commit()
-    card.faceUp = faceUp
-    card.defense = defense
-    this.relayout(card)
-    this.d.onAction()
-    this.d.onChange()
-  }
-
-  private relayout(card: Card) {
-    if (card.zoneKey) this.d.board.layoutZone(card.zoneKey, 0.35)
-  }
-
-  toHand(card: Card) {
-    this.d.commit()
-    this.d.board.remove(card)
-    this.d.hand.add(card, 0.4)
-    this.d.onAction()
-    this.d.onChange()
-  }
-
-  addCounter(card: Card, delta: number) {
-    this.d.commit()
-    card.setCounters(card.counters + delta)
-    this.d.invalidate()
-    this.d.onAction()
-    this.d.onChange()
   }
 
   // ---- menus ----
 
   handItems(card: Card): MenuItem[] {
-    const own: Owner = 'p1'
+    const uid = card.uid
+    const own = this.seat
     return [
-      ...this.playItems(card),
-      { label: 'Send to GY', action: () => this.moveTo(card, `${own}:gy:0`, true, false) },
-      { label: 'Banish', action: () => this.moveTo(card, `${own}:banished:0`, true, false) },
-      { label: 'Banish face-down', action: () => this.moveTo(card, `${own}:banished:0`, false, false) },
-      { label: 'Return to deck (top)', action: () => this.d.returnToDeck(card, 'top') },
-      { label: 'Shuffle into deck', action: () => this.d.returnToDeck(card, 'shuffle') },
+      ...this.playItems(card, uid),
+      { label: 'Send to GY', action: () => this.moveTo(uid, this.zone(own, 'gy'), true, false) },
+      { label: 'Banish', action: () => this.moveTo(uid, this.zone(own, 'banished'), true, false) },
+      { label: 'Banish face-down', action: () => this.moveTo(uid, this.zone(own, 'banished'), false, false) },
+      { label: 'Return to deck (top)', action: () => this.returnToDeck(uid, 'top') },
+      { label: 'Shuffle into deck', action: () => this.returnToDeck(uid, 'shuffle') },
     ]
   }
 
   pileItems(card: Card): MenuItem[] {
-    const own: Owner = 'p1'
+    const uid = card.uid
+    const own = this.seat
     return [
-      ...this.playItems(card),
-      { label: 'Add to hand', action: () => this.toHand(card) },
-      { label: 'Send to GY', action: () => this.moveTo(card, `${own}:gy:0`, true, false) },
-      { label: 'Banish', action: () => this.moveTo(card, `${own}:banished:0`, true, false) },
-      { label: 'Banish face-down', action: () => this.moveTo(card, `${own}:banished:0`, false, false) },
-      { label: 'Return to deck (top)', action: () => this.d.returnToDeck(card, 'top') },
-      { label: 'Return to deck (bottom)', action: () => this.d.returnToDeck(card, 'bottom') },
-      { label: 'Shuffle into deck', action: () => this.d.returnToDeck(card, 'shuffle') },
+      ...this.playItems(card, uid),
+      { label: 'Add to hand', action: () => this.toHand(uid) },
+      { label: 'Send to GY', action: () => this.moveTo(uid, this.zone(own, 'gy'), true, false) },
+      { label: 'Banish', action: () => this.moveTo(uid, this.zone(own, 'banished'), true, false) },
+      { label: 'Banish face-down', action: () => this.moveTo(uid, this.zone(own, 'banished'), false, false) },
+      { label: 'Return to deck (top)', action: () => this.returnToDeck(uid, 'top') },
+      { label: 'Return to deck (bottom)', action: () => this.returnToDeck(uid, 'bottom') },
+      { label: 'Shuffle into deck', action: () => this.returnToDeck(uid, 'shuffle') },
     ]
   }
 
   /**
-   * Graveyard menu for a card that is still data in the deck.
-   * `pull(true)` closes the dialog before the card is taken, so a shuffle snapshot
-   * still contains it. Immediate moves pass false and take the card in place.
+   * Menu for a card that is still in the deck (it has no mesh). Plays close the dialog first,
+   * which shuffles the deck, and then wait for a zone. Moves happen in place.
    */
-  deckItems(data: CardData, pull: (closeFirst: boolean) => Card | null): MenuItem[] {
-    const own: Owner = 'p1'
+  deckItems(uid: string, data: CardData): MenuItem[] {
+    const own = this.seat
     const play = (action: PlayAction) => () => {
-      const card = pull(true)
-      if (card) this.play(card, action)
-    }
-    const act = (fn: (card: Card) => void) => () => {
-      const card = pull(false)
-      if (card) fn(card)
+      this.d.closeViewer()
+      this.play(uid, action)
     }
     const info = { data }
     return [
@@ -278,22 +281,25 @@ export class CardActions {
       { separator: true },
       ...otherPlays(info).map((action) => ({ label: action.label, action: play(action) })),
       { separator: true },
-      { label: 'Add to hand', action: act((card) => this.toHand(card)) },
-      { label: 'Send to GY', action: act((card) => this.moveTo(card, `${own}:gy:0`, true, false)) },
-      { label: 'Banish', action: act((card) => this.moveTo(card, `${own}:banished:0`, true, false)) },
-      { label: 'Banish face-down', action: act((card) => this.moveTo(card, `${own}:banished:0`, false, false)) },
-      { label: 'Return to deck (top)', action: act((card) => this.d.returnToDeck(card, 'top')) },
-      { label: 'Return to deck (bottom)', action: act((card) => this.d.returnToDeck(card, 'bottom')) },
-      { label: 'Shuffle into deck', action: act((card) => this.d.returnToDeck(card, 'shuffle')) },
+      { label: 'Add to hand', action: () => this.toHand(uid) },
+      { label: 'Send to GY', action: () => this.moveTo(uid, this.zone(own, 'gy'), true, false) },
+      { label: 'Banish', action: () => this.moveTo(uid, this.zone(own, 'banished'), true, false) },
+      { label: 'Banish face-down', action: () => this.moveTo(uid, this.zone(own, 'banished'), false, false) },
+      { label: 'Return to deck (top)', action: () => this.returnToDeck(uid, 'top') },
+      { label: 'Return to deck (bottom)', action: () => this.returnToDeck(uid, 'bottom') },
+      { label: 'Shuffle into deck', action: () => this.returnToDeck(uid, 'shuffle') },
     ]
   }
 
-  private positionItems(card: Card): MenuItem[] {
-    const type: ZoneType | undefined = card.zoneKey ? getZoneByKey(card.zoneKey)?.id.type : undefined
+  private positionItems(uid: string): MenuItem[] {
+    const game = this.d.game()
+    const state = game.cards[uid]
+    const type = locate(game, uid, this.seat).type
+    if (!state) return []
     const opt = (label: string, faceUp: boolean, defense: boolean): MenuItem => ({
       label,
-      disabled: card.faceUp === faceUp && card.defense === defense,
-      action: () => this.setPosition(card, faceUp, defense),
+      disabled: state.faceUp === faceUp && state.defense === defense,
+      action: () => this.setPosition(uid, faceUp, defense),
     })
     if (type === 'monster' || type === 'emz') {
       return [opt('To ATK', true, false), opt('To DEF (Face up)', true, true), opt('To DEF (Face down)', false, true)]
@@ -305,15 +311,17 @@ export class CardActions {
   }
 
   boardItems(card: Card): MenuItem[] {
-    const own = this.ownerOf(card)
+    const uid = card.uid
+    const game = this.d.game()
+    const own = locate(game, uid, this.seat).owner
     const isMonster = card.data.atk !== undefined
-    const positions = this.positionItems(card)
+    const positions = this.positionItems(uid)
     const battle: MenuItem[] =
-      this.d.inBattle() && isAttacker(card)
+      this.d.inBattle() && isAttacker(game, uid, this.seat)
         ? [
             {
-              label: attackTargetKeys(this.d.board).length ? 'Attack' : 'Direct attack',
-              action: () => this.d.attack(card),
+              label: attackTargetKeys(game, this.seat).length ? 'Attack' : 'Direct attack',
+              action: () => this.d.attack(uid),
             },
             { separator: true },
           ]
@@ -322,18 +330,18 @@ export class CardActions {
       ...battle,
       ...positions,
       ...(positions.length ? [{ separator: true }] : []),
-      { label: 'Send to GY', action: () => this.moveTo(card, `${own}:gy:0`, true, false) },
-      { label: 'Banish', action: () => this.moveTo(card, `${own}:banished:0`, true, false) },
-      { label: 'Banish face-down', action: () => this.moveTo(card, `${own}:banished:0`, false, false) },
+      { label: 'Send to GY', action: () => this.moveTo(uid, this.zone(own, 'gy'), true, false) },
+      { label: 'Banish', action: () => this.moveTo(uid, this.zone(own, 'banished'), true, false) },
+      { label: 'Banish face-down', action: () => this.moveTo(uid, this.zone(own, 'banished'), false, false) },
       { separator: true },
-      { label: 'Return to hand', action: () => this.toHand(card) },
-      { label: 'Return to deck (top)', action: () => this.d.returnToDeck(card, 'top') },
-      { label: 'Return to deck (bottom)', action: () => this.d.returnToDeck(card, 'bottom') },
-      { label: 'Shuffle into deck', action: () => this.d.returnToDeck(card, 'shuffle') },
+      { label: 'Return to hand', action: () => this.toHand(uid) },
+      { label: 'Return to deck (top)', action: () => this.returnToDeck(uid, 'top') },
+      { label: 'Return to deck (bottom)', action: () => this.returnToDeck(uid, 'bottom') },
+      { label: 'Shuffle into deck', action: () => this.returnToDeck(uid, 'shuffle') },
       { separator: true },
-      { label: 'Edit ATK/DEF…', disabled: !isMonster, action: () => this.d.editStats(card) },
-      { label: 'Add counter', action: () => this.addCounter(card, 1) },
-      { label: 'Remove counter', disabled: card.counters === 0, action: () => this.addCounter(card, -1) },
+      { label: 'Edit ATK/DEF…', disabled: !isMonster, action: () => this.d.editStats(uid) },
+      { label: 'Add counter', action: () => this.addCounter(uid, 1) },
+      { label: 'Remove counter', disabled: (game.cards[uid]?.counters ?? 0) === 0, action: () => this.addCounter(uid, -1) },
     ]
   }
 }

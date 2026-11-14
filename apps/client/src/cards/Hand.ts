@@ -69,13 +69,15 @@ export class Hand {
   }
 
   /** Add a card (already parented anywhere in the scene) to the hand. */
-  add(card: Card, dur = 0.55) {
+  add(card: Card, dur = 0.55, index?: number) {
     this.group.attach(card.mesh)
-    card.zoneKey = null
-    card.faceUp = true
-    card.defense = false
-    this.cards.push(card)
+    // `index` counts from the first card, like the game state. Omitted means the end.
+    this.cards.splice(index === undefined ? this.cards.length : Math.max(0, Math.min(index, this.cards.length)), 0, card)
     this.layout(card, dur)
+  }
+
+  has(card: Card): boolean {
+    return this.cards.includes(card)
   }
 
   clear() {

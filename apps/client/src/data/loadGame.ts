@@ -1,4 +1,17 @@
-import { EXTRA_KINDS, createGame, extraDeckKind, resolveDeck, type CardInfo, type CardKind, type DeckList, type GameState } from '@duelist/shared'
+import {
+  EXTRA_KINDS,
+  apply,
+  createGame,
+  extraDeckKind,
+  resolveDeck,
+  zoneKey,
+  type ApplyContext,
+  type CardInfo,
+  type CardKind,
+  type DeckList,
+  type GameState,
+} from '@duelist/shared'
+import { TEMPLATES, shuffle } from './demoDeck'
 
 export type Catalog = Map<number, CardInfo>
 
@@ -73,9 +86,43 @@ export function buildGame(players: { name: string; deck: DeckList }[], catalog: 
   return { game: createGame({ players: resolved }), missing: [...missing] }
 }
 
-/** A two-player game where both seats play the demo deck. */
-export async function buildDemoGame(): Promise<{ game: GameState; catalog: Catalog; missing: number[] }> {
-  const catalog = await loadCatalog()
+/** Catalog of the placeholder cards, for when `catalog.json` can't be loaded. */
+export function placeholderCatalog(): Catalog {
+  return new Map(
+    TEMPLATES.map((t, i): [number, CardInfo] => {
+      const passcode = 900000 + i
+      return [passcode, { ...t, passcode }]
+    }),
+  )
+}
+
+/** What `apply()` needs to know about cards: which extra deck cards are Pendulum monsters. */
+export function applyContext(catalog: Catalog): ApplyContext {
+  return { isPendulum: (passcode) => catalog.get(passcode)?.type?.toLowerCase().includes('pendulum') ?? false }
+}
+
+/** Shuffles every seat's deck. */
+export function shuffleDecks(game: GameState, ctx: ApplyContext): GameState {
+  let state = game
+  for (let seat = 0; seat < game.seats.length; seat++) {
+    const zone = zoneKey({ owner: seat, type: 'deck', index: 0 })
+    // TODO(server): the server will choose the order.
+    const order = shuffle([...(state.zones[zone] ?? [])])
+    const result = apply(state, { type: 'shuffle', seat, zone, order }, ctx)
+    if (result.ok) state = result.state
+  }
+  return state
+}
+
+/** A two-player game where both seats play the demo deck, with both decks shuffled. */
+export async function loadStartGame(): Promise<{ game: GameState; catalog: Catalog; ctx: ApplyContext; missing: number[] }> {
+  let catalog: Catalog
+  try {
+    catalog = await loadCatalog()
+  } catch (e) {
+    console.warn('Card catalog unavailable, using placeholders', e)
+    catalog = placeholderCatalog()
+  }
   const deck = demoDeckList(catalog)
   const { game, missing } = buildGame(
     [
@@ -84,5 +131,6 @@ export async function buildDemoGame(): Promise<{ game: GameState; catalog: Catal
     ],
     catalog,
   )
-  return { game, catalog, missing }
+  const ctx = applyContext(catalog)
+  return { game: shuffleDecks(game, ctx), catalog, ctx, missing }
 }
