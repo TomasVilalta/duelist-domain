@@ -11,10 +11,11 @@ Roadmap step 1. See [roadmap-v0.md](../roadmap-v0.md), and decisions D4, D5 and 
 | T3 `GameState` | done |
 | T4 `Action` and `apply()` | done, review fixes applied |
 | T5 deck loading and `parseYdk` | done (not wired into the app until T6) |
-| T6 Zustand game store | built, in review ([#4](https://github.com/TomasVilalta/duelist-domain/pull/4)) |
-| T7 to T10 | not started |
+| T6 Zustand game store | done |
+| T7 card views | built, in review ([#5](https://github.com/TomasVilalta/duelist-domain/pull/5), not wired into `App` until T8) |
+| T8 to T10 | not started |
 
-Next: T7 (card views).
+Next: T8 (reconcile with animation).
 
 ## Goal
 Game state becomes a plain, serializable `GameState` in `@duelist/shared`, changed only by `apply(state, action)`. The Three.js client renders from a Zustand store holding that state. Local hotseat play must work the same as it does today.
@@ -175,7 +176,7 @@ Replace `loadDemoDeck`/`buildDemoDeck` with a function that takes passcode lists
 
 ---
 
-## T6: Zustand game store (built, in review: https://github.com/TomasVilalta/duelist-domain/pull/4)
+## T6: Zustand game store (done)
 `client/src/state/gameStore.ts`:
 ```ts
 { game: GameState; log: Action[]; history: GameState[];
@@ -197,7 +198,7 @@ Replace `loadDemoDeck`/`buildDemoDeck` with a function that takes passcode lists
 
 ---
 
-## T7: Rendering from the state, part 1 (card views)
+## T7: Rendering from the state, part 1 (card views) (built, in review: https://github.com/TomasVilalta/duelist-domain/pull/5)
 Create `CardViews`: a `Map<uid, Card>` that creates a `Card` mesh the first time a uid appears in a rendered zone and disposes it when the card is no longer rendered. `Card` loses its game fields (`zoneKey`, `faceUp`, `defense` and counters become derived from the state) and keeps only the visual state set from `CardState`.
 
 **DoD**
