@@ -1,6 +1,7 @@
 export * from './actions'
 export * from './apply'
 export * from './cards'
+export * from './deck'
 export * from './seat'
 export * from './state'
 export * from './zones'

@@ -142,7 +142,9 @@ Zone rules enforced in `apply()`, because they are layout facts rather than game
 
 ---
 
-## T5: Client deck loading into `GameState`
+## T5: Client deck loading into `GameState` (built, awaiting review)
+Built as `shared/src/deck.ts` (`parseYdk`, `resolveDeck`) and `client/src/data/loadGame.ts` (`loadCatalog`, `demoDeckList`, `buildGame`, `buildDemoGame`). `buildDemoGame()` isn't called by the app yet: it gets wired in when the game store exists (T6), and the old demo deck path keeps running until T8/T9.
+
 Replace `loadDemoDeck`/`buildDemoDeck` with a function that takes passcode lists (from the current demo list, and later a `.ydk` file), resolves them through the catalog (the local `catalog.json` for now, then YGOPRODeck), and calls `createGame`. Add a `parseYdk(text)` function in shared for sprint 4, since it's small.
 
 **DoD**
