@@ -1,4 +1,4 @@
-﻿# Sprint 1: Separate game state from rendering
+# Sprint 1: Separate game state from rendering
 
 Roadmap step 1. See [roadmap-v0.md](../roadmap-v0.md), and decisions D4, D5 and D6 in [decisions.md](../decisions.md).
 
@@ -13,10 +13,11 @@ Roadmap step 1. See [roadmap-v0.md](../roadmap-v0.md), and decisions D4, D5 and 
 | T5 deck loading and `parseYdk` | done (not wired into the app until T6) |
 | T6 Zustand game store | done |
 | T7 card views | done |
-| T8 reconcile | built, in review ([#6](https://github.com/TomasVilalta/duelist-domain/pull/6), wired into `App` by T9; merge together) |
-| T9 to T10 | not started |
+| T8 reconcile | done ([#6](https://github.com/TomasVilalta/duelist-domain/pull/6), wired into `App` by T9) |
+| T9 interactions dispatch actions | done ([#7](https://github.com/TomasVilalta/duelist-domain/pull/7)) |
+| T10 remove snapshot, debug dump | done ([#8](https://github.com/TomasVilalta/duelist-domain/pull/8)) |
 
-Next: T9 (interactions dispatch actions).
+Sprint 1 is complete. Next: sprint 2.
 
 ## Goal
 Game state becomes a plain, serializable `GameState` in `@duelist/shared`, changed only by `apply(state, action)`. The Three.js client renders from a Zustand store holding that state. Local hotseat play must work the same as it does today.
@@ -212,7 +213,7 @@ Create `CardViews`: a `Map<uid, Card>` that creates a `Card` mesh the first time
 
 ---
 
-## T8: Rendering from the state, part 2 (reconciling with animation) (built, in review: https://github.com/TomasVilalta/duelist-domain/pull/6)
+## T8: Rendering from the state, part 2 (reconciling with animation) (done)
 A `reconcile(prev, next)` function runs on every store change:
 - It compares zone lists to find, for each uid, a move (`fromKey → toKey`), a change in face-up or position, or a counter change.
 - It calls the existing `BoardState.place()` and `layoutZone()`, `Hand.add()`/`remove()`/`layout()` and `DeckPile.setCount()`, so the current animations (`LandingFx`, tweens, the deck shuffle animation) keep working.
@@ -237,7 +238,7 @@ A `reconcile(prev, next)` function runs on every store change:
 
 ---
 
-## T9: Interactions dispatch Actions (built, in review: https://github.com/TomasVilalta/duelist-domain/pull/7)
+## T9: Interactions dispatch Actions (done)
 Rewire `CardActions`, `HandInteraction` and the deck/pile handlers in `App.ts` (`drawCard`, `millCard`, `shuffleDeck`, `returnToDeck`, `playFromDeck`, `handFromDeck`, `changeLp`, `setPhase`, `endTurn`, `declareAttack`) so they build `Action`s and call `dispatch`. `shuffle` creates its random order on the client for now, with a `TODO(server)` marker.
 - `targetZoneKeys`, `attackTargetKeys` and `isAttacker` read from `GameState` and take a `seat` instead of `'p1' | 'p2'`.
 - Drag and drop: during the drag the card is a temporary visual. On drop, the client dispatches `move` (with `faceUp`/`defense` from the chosen pose), and on cancel nothing is dispatched.
@@ -256,7 +257,7 @@ Rewire `CardActions`, `HandInteraction` and the deck/pile handlers in `App.ts` (
 
 ---
 
-## T10: Remove the old snapshot and undo code, and add a debug view (built, in review: https://github.com/TomasVilalta/duelist-domain/pull/8)
+## T10: Remove the old snapshot and undo code, and add a debug view (done)
 - Delete `state/Snapshot.ts` and `App.capture()`, `restore()`, `take()` and `snapOf()`. Undo uses `gameStore.undo()`.
 - Remove `CardData.uid: number` in favor of string uids from the state.
 - Add a debug panel (lil-gui or a `window.__game` getter) that can dump the current `GameState` and the action log as JSON.
