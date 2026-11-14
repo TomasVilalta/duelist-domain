@@ -139,7 +139,7 @@ export class App {
     this.deckPile.setCount(this.deckCards.length)
     const card = new Card(data)
     card.faceUp = true
-    const zone = getZoneByKey('p1:deck:0')!
+    const zone = getZoneByKey('s0:deck:0')!
     card.mesh.position.set(zone.x, this.deckPile.topY + 0.02, zone.z)
     card.mesh.rotation.set(Math.PI / 2, 0, 0)
     this.scene.add(card.mesh)
@@ -184,7 +184,7 @@ export class App {
   }
 
   private pileViews(key: string): PileView[] {
-    if (key === 'p1:deck:0') {
+    if (key === 's0:deck:0') {
       return this.deckCards.map((data) => ({ uid: data.uid, name: data.name, image: data.image, faceUp: true }))
     }
     return this.board.cardsIn(key).map((card) => ({
@@ -229,7 +229,7 @@ export class App {
     const card = this.spawnFromDeck()
     if (!card) return
     card.faceUp = true
-    this.board.place(card, 'p1:gy:0', 0.4)
+    this.board.place(card, 's0:gy:0', 0.4)
     this.sync()
   }
 
@@ -357,7 +357,7 @@ export class App {
       const fresh = !this.live.has(s.data.uid)
       const card = this.take(s, keep)
       if (fresh) {
-        const deck = getZoneByKey('p1:deck:0')!
+        const deck = getZoneByKey('s0:deck:0')!
         card.mesh.position.set(deck.x, 0.4, deck.z)
         card.mesh.rotation.set(Math.PI / 2, 0, 0)
       }
@@ -431,7 +431,7 @@ export class App {
 
   /** Shortcut buttons for a selected hand card, a pile card, or a card in the deck dialog. */
   private refreshShortcuts() {
-    if (this.viewing === 'p1:deck:0' && this.deckPick != null) {
+    if (this.viewing === 's0:deck:0' && this.deckPick != null) {
       const data = this.deckCards.find((c) => c.uid === this.deckPick)
       if (data) {
         this.actionBar?.setFromData(data, (play) => this.playFromDeck(data.uid, play), [
@@ -482,13 +482,13 @@ export class App {
     if (!this.inBattle() || !isAttacker(card)) return
     // No monsters to hit: every opposing monster zone is a direct-attack target.
     const hit = attackTargetKeys(this.board)
-    const keys = hit.length ? hit : Array.from({ length: 5 }, (_, i) => `p2:monster:${i}`)
+    const keys = hit.length ? hit : Array.from({ length: 5 }, (_, i) => `s1:monster:${i}`)
     this.interaction?.beginAttack(card, keys)
   }
 
   /** Face-down extra deck: one Fusion, Synchro, XYZ, and Link monster. */
   private seedExtra(cards: CardData[]) {
-    const zone = getZoneByKey('p1:extra:0')
+    const zone = getZoneByKey('s0:extra:0')
     if (!zone) return
     for (const data of cards) {
       const card = new Card(data)
@@ -542,8 +542,8 @@ export class App {
 
     this.fx = new PostFX(r, this.scene, this.rig.camera, q)
 
-    this.deckPile = new DeckPile('p1:deck:0', this.deckCards.length)
-    const oppDeck = new DeckPile('p2:deck:0', 40)
+    this.deckPile = new DeckPile('s0:deck:0', this.deckCards.length)
+    const oppDeck = new DeckPile('s1:deck:0', 40)
     this.scene.add(this.deckPile.mesh, oppDeck.mesh)
     this.board = new BoardState(this.tweens, this.landing)
     this.seedExtra(deck.extra)
@@ -644,12 +644,12 @@ export class App {
         this.viewing = null
         this.deckPick = null
         this.deselect()
-        if (key === 'p1:deck:0' && !this.skipDeckShuffle && !this.disposed) this.shuffleDeck()
+        if (key === 's0:deck:0' && !this.skipDeckShuffle && !this.disposed) this.shuffleDeck()
         this.skipDeckShuffle = false
       },
       onCardContext: (view, x, y) => {
         this.menuPos = { x, y }
-        if (this.viewing === 'p1:deck:0') {
+        if (this.viewing === 's0:deck:0') {
           const data = this.deckCards.find((c) => c.uid === view.uid)
           if (!data) return
           this.menu.open(x, y, data.name, this.actions.deckItems(data, (closeFirst) => this.pullDeckCard(view.uid, closeFirst)))
@@ -659,7 +659,7 @@ export class App {
         if (card) this.menu.open(x, y, card.data.name, this.actions.pileItems(card))
       },
       onDragOut: (view, ev) => {
-        if (this.viewing === 'p1:deck:0') {
+        if (this.viewing === 's0:deck:0') {
           const uid = view.uid
           // Snapshot first, then shuffle, so undo puts the card back in the old order.
           this.record()
@@ -671,7 +671,7 @@ export class App {
           }
           this.skipDeckShuffle = true
           try {
-            interaction?.beginExternalDrag(card, ev, 'p1:deck:0', false)
+            interaction?.beginExternalDrag(card, ev, 's0:deck:0', false)
           } finally {
             this.viewer?.close()
           }
@@ -686,7 +686,7 @@ export class App {
         }
       },
       onCardHover: (view) => {
-        if (this.viewing === 'p1:deck:0') {
+        if (this.viewing === 's0:deck:0') {
           const data = view ? (this.deckCards.find((c) => c.uid === view.uid) ?? null) : null
           this.detail?.previewData(data)
           return
@@ -694,7 +694,7 @@ export class App {
         this.detail?.hover(view ? this.cardByUid(view.uid) : null, true)
       },
       onCardClick: (view) => {
-        if (this.viewing === 'p1:deck:0') {
+        if (this.viewing === 's0:deck:0') {
           const data = this.deckCards.find((c) => c.uid === view.uid) ?? null
           this.deckPick = this.deckPick === view.uid ? null : view.uid
           this.detail?.stickData(this.deckPick ? data : null)

@@ -77,14 +77,14 @@ export function primaryPlays(card: CardInfo): PlayAction[] {
  * row when they are all full, so the card can be stacked. Field spells only
  * ever offer the field zone.
  */
-export function targetZoneKeys(owner: 'p1' | 'p2', zone: PlayZone, isEmpty: (key: string) => boolean): string[] {
-  if (zone === 'field') return [`${owner}:field:0`]
+export function targetZoneKeys(owner: number, zone: PlayZone, isEmpty: (key: string) => boolean): string[] {
+  if (zone === 'field') return [`s${owner}:field:0`]
   if (zone === 'pendulum') {
-    const keys = [`${owner}:spell:0`, `${owner}:spell:4`]
+    const keys = [`s${owner}:spell:0`, `s${owner}:spell:4`]
     const empty = keys.filter(isEmpty)
     return empty.length > 0 ? empty : keys
   }
-  const keys = Array.from({ length: 5 }, (_, i) => `${owner}:${zone}:${i}`)
+  const keys = Array.from({ length: 5 }, (_, i) => `s${owner}:${zone}:${i}`)
   const empty = keys.filter(isEmpty)
   return empty.length > 0 ? empty : keys
 }
@@ -92,12 +92,12 @@ export function targetZoneKeys(owner: 'p1' | 'p2', zone: PlayZone, isEmpty: (key
 /** Your monsters on the field. The extra monster zones are shared but count as yours for now. */
 export function isAttacker(card: Card): boolean {
   const key = card.zoneKey ?? ''
-  return key.startsWith('p1:monster:') || key.startsWith('shared:emz:')
+  return key.startsWith('s0:monster:') || key.startsWith('shared:emz:')
 }
 
 /** Opponent monster zones that hold a card. Empty means a direct attack. */
 export function attackTargetKeys(board: BoardState): string[] {
-  return Array.from({ length: 5 }, (_, i) => `p2:monster:${i}`).filter((key) => board.cardsIn(key).length > 0)
+  return Array.from({ length: 5 }, (_, i) => `s1:monster:${i}`).filter((key) => board.cardsIn(key).length > 0)
 }
 
 /** Plays that don't match the card's kind. Still allowed, listed last. */
@@ -136,7 +136,7 @@ interface Deps {
   attack: (card: Card) => void
 }
 
-type Owner = 'p1' | 'p2'
+type Owner = number
 
 /** Manual card actions. Nothing is validated: every action is always allowed. */
 export class CardActions {
@@ -147,7 +147,7 @@ export class CardActions {
   }
 
   private ownerOf(card: Card): Owner {
-    return card.zoneKey?.startsWith('p2') ? 'p2' : 'p1'
+    return card.zoneKey?.startsWith('s1') ? 1 : 0
   }
 
   /** Ask the player to click a zone for this play. */
@@ -232,25 +232,25 @@ export class CardActions {
   // ---- menus ----
 
   handItems(card: Card): MenuItem[] {
-    const own: Owner = 'p1'
+    const own: Owner = 0
     return [
       ...this.playItems(card),
-      { label: 'Send to GY', action: () => this.moveTo(card, `${own}:gy:0`, true, false) },
-      { label: 'Banish', action: () => this.moveTo(card, `${own}:banished:0`, true, false) },
-      { label: 'Banish face-down', action: () => this.moveTo(card, `${own}:banished:0`, false, false) },
+      { label: 'Send to GY', action: () => this.moveTo(card, `s${own}:gy:0`, true, false) },
+      { label: 'Banish', action: () => this.moveTo(card, `s${own}:banished:0`, true, false) },
+      { label: 'Banish face-down', action: () => this.moveTo(card, `s${own}:banished:0`, false, false) },
       { label: 'Return to deck (top)', action: () => this.d.returnToDeck(card, 'top') },
       { label: 'Shuffle into deck', action: () => this.d.returnToDeck(card, 'shuffle') },
     ]
   }
 
   pileItems(card: Card): MenuItem[] {
-    const own: Owner = 'p1'
+    const own: Owner = 0
     return [
       ...this.playItems(card),
       { label: 'Add to hand', action: () => this.toHand(card) },
-      { label: 'Send to GY', action: () => this.moveTo(card, `${own}:gy:0`, true, false) },
-      { label: 'Banish', action: () => this.moveTo(card, `${own}:banished:0`, true, false) },
-      { label: 'Banish face-down', action: () => this.moveTo(card, `${own}:banished:0`, false, false) },
+      { label: 'Send to GY', action: () => this.moveTo(card, `s${own}:gy:0`, true, false) },
+      { label: 'Banish', action: () => this.moveTo(card, `s${own}:banished:0`, true, false) },
+      { label: 'Banish face-down', action: () => this.moveTo(card, `s${own}:banished:0`, false, false) },
       { label: 'Return to deck (top)', action: () => this.d.returnToDeck(card, 'top') },
       { label: 'Return to deck (bottom)', action: () => this.d.returnToDeck(card, 'bottom') },
       { label: 'Shuffle into deck', action: () => this.d.returnToDeck(card, 'shuffle') },
@@ -263,7 +263,7 @@ export class CardActions {
    * still contains it. Immediate moves pass false and take the card in place.
    */
   deckItems(data: CardData, pull: (closeFirst: boolean) => Card | null): MenuItem[] {
-    const own: Owner = 'p1'
+    const own: Owner = 0
     const play = (action: PlayAction) => () => {
       const card = pull(true)
       if (card) this.play(card, action)
@@ -279,9 +279,9 @@ export class CardActions {
       ...otherPlays(info).map((action) => ({ label: action.label, action: play(action) })),
       { separator: true },
       { label: 'Add to hand', action: act((card) => this.toHand(card)) },
-      { label: 'Send to GY', action: act((card) => this.moveTo(card, `${own}:gy:0`, true, false)) },
-      { label: 'Banish', action: act((card) => this.moveTo(card, `${own}:banished:0`, true, false)) },
-      { label: 'Banish face-down', action: act((card) => this.moveTo(card, `${own}:banished:0`, false, false)) },
+      { label: 'Send to GY', action: act((card) => this.moveTo(card, `s${own}:gy:0`, true, false)) },
+      { label: 'Banish', action: act((card) => this.moveTo(card, `s${own}:banished:0`, true, false)) },
+      { label: 'Banish face-down', action: act((card) => this.moveTo(card, `s${own}:banished:0`, false, false)) },
       { label: 'Return to deck (top)', action: act((card) => this.d.returnToDeck(card, 'top')) },
       { label: 'Return to deck (bottom)', action: act((card) => this.d.returnToDeck(card, 'bottom')) },
       { label: 'Shuffle into deck', action: act((card) => this.d.returnToDeck(card, 'shuffle')) },
@@ -322,9 +322,9 @@ export class CardActions {
       ...battle,
       ...positions,
       ...(positions.length ? [{ separator: true }] : []),
-      { label: 'Send to GY', action: () => this.moveTo(card, `${own}:gy:0`, true, false) },
-      { label: 'Banish', action: () => this.moveTo(card, `${own}:banished:0`, true, false) },
-      { label: 'Banish face-down', action: () => this.moveTo(card, `${own}:banished:0`, false, false) },
+      { label: 'Send to GY', action: () => this.moveTo(card, `s${own}:gy:0`, true, false) },
+      { label: 'Banish', action: () => this.moveTo(card, `s${own}:banished:0`, true, false) },
+      { label: 'Banish face-down', action: () => this.moveTo(card, `s${own}:banished:0`, false, false) },
       { separator: true },
       { label: 'Return to hand', action: () => this.toHand(card) },
       { label: 'Return to deck (top)', action: () => this.d.returnToDeck(card, 'top') },

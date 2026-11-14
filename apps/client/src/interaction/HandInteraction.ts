@@ -76,7 +76,7 @@ interface Drag {
 const DRAG_Y = 0.7
 const DRAG_THRESHOLD = 5
 const HAND_DROP_NDC_Y = -0.6
-const OWN_DECK = 'p1:deck:0'
+const OWN_DECK = 's0:deck:0'
 
 /** Pointer input: hand hover, deck click, and dragging cards between hand and zones. */
 export class HandInteraction implements Updatable {
@@ -223,7 +223,7 @@ export class HandInteraction implements Updatable {
     const restart = this.targeting !== null
     this.targeting = null
     this.opts.zones.setAllHighlights(0)
-    const owner = card.zoneKey?.startsWith('p2') ? 'p2' : 'p1'
+    const owner = card.zoneKey?.startsWith('s1') ? 1 : 0
     const keys = targetZoneKeys(owner, play.zone, (key) => this.opts.board.cardsIn(key).length === 0)
     this.targeting = { attack: false, card, faceUp: play.faceUp, defense: play.defense, keys, hot: null, declared: null }
     for (const key of keys) this.opts.zones.setHighlight(key, 0.7)

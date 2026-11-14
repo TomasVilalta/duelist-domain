@@ -5,7 +5,7 @@ const DRAG_CARD_WIDTHS = 1.5
 
 function title(key: string, n: number): string {
   const [owner, type] = key.split(':')
-  const who = owner === 'p1' ? 'You' : 'Opponent'
+  const who = owner === 's0' ? 'You' : 'Opponent'
   return `${who} · ${NAMES[type] ?? type} (${n})`
 }
 

@@ -1,13 +1,11 @@
 // Pure data: no three.js imports, reusable by game state and interaction code.
 
-import type { ZoneType } from '@duelist/shared'
+import { zoneKey as stateZoneKey, type Seat, type ZoneType } from '@duelist/shared'
 
 export { legalOrientation, zonePoses, type CardPose, type ZoneType } from '@duelist/shared'
 
-export type Owner = 'p1' | 'p2'
-
 export interface ZoneId {
-  owner: Owner | 'shared'
+  owner: Seat | 'shared'
   type: ZoneType
   index: number
 }
@@ -32,21 +30,30 @@ const SPELL_Z = 3.75
 const SIDE_X = 4.4
 
 /** GY, banished, extra deck, and your deck open the pile viewer. */
-export function isViewPile(key: string): boolean {
-  return key.includes(':gy:') || key.includes(':banished:') || key.includes(':extra:') || key === 'p1:deck:0'
+export function isViewPile(key: string, localSeat: Seat = 0): boolean {
+  return key.includes(':gy:') || key.includes(':banished:') || key.includes(':extra:') || key === deckKey(localSeat)
 }
 
 export function zoneKey(id: ZoneId): string {
-  return `${id.owner}:${id.type}:${id.index}`
+  return stateZoneKey(id)
 }
 
 function make(id: ZoneId, x: number, z: number, rotY: number, pile: boolean): ZoneTransform {
   return { id, key: zoneKey(id), x, z, rotY, w: ZONE_W, h: ZONE_H, pile }
 }
 
-function sideZones(owner: Owner): ZoneTransform[] {
-  const s = owner === 'p1' ? 1 : -1
-  const rot = owner === 'p1' ? 0 : Math.PI
+/** Seat sitting on the near side of the board (bottom of the screen). Hotseat: the local seat is always 0. */
+export const NEAR_SEAT: Seat = 0
+export const FAR_SEAT: Seat = 1
+
+/** Zone key of a seat's own deck. */
+export function deckKey(seat: Seat): string {
+  return stateZoneKey({ owner: seat, type: 'deck', index: 0 })
+}
+
+function sideZones(owner: Seat, near: boolean): ZoneTransform[] {
+  const s = near ? 1 : -1
+  const rot = near ? 0 : Math.PI
   const at = (type: ZoneType, index: number, x: number, z: number, pile: boolean) =>
     make({ owner, type, index }, x * s, z * s, rot, pile)
   const out: ZoneTransform[] = []
@@ -64,8 +71,8 @@ function sideZones(owner: Owner): ZoneTransform[] {
 }
 
 export const ZONES: ZoneTransform[] = [
-  ...sideZones('p1'),
-  ...sideZones('p2'),
+  ...sideZones(NEAR_SEAT, true),
+  ...sideZones(FAR_SEAT, false),
   make({ owner: 'shared', type: 'emz', index: 0 }, -PITCH, 0, 0, false),
   make({ owner: 'shared', type: 'emz', index: 1 }, PITCH, 0, 0, false),
 ]
