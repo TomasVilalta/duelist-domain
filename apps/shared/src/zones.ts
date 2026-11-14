@@ -26,6 +26,8 @@ export function zonePoses(type: ZoneType): CardPose[] {
 
 /** Snap a pose to one this zone allows, keeping face-up or face-down when that is legal. */
 export function legalOrientation(type: ZoneType, faceUp: boolean, defense: boolean): CardPose {
+  // Hidden zones: a card in the deck or hand is always face-down.
+  if (type === 'deck' || type === 'hand') return { faceUp: false, defense: false }
   const poses = zonePoses(type)
   if (poses.length === 0) return { faceUp, defense }
   return poses.find((p) => p.faceUp === faceUp && p.defense === defense) ?? poses.find((p) => p.faceUp === faceUp) ?? poses[0]!

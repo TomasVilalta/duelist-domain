@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { apply, type ApplyContext } from './apply'
+import { apply as applyWith, type ApplyContext } from './apply'
 import type { Action } from './actions'
 import { createGame, type GameState } from './state'
 
 const PENDULUM = 9000
 const ctx: ApplyContext = { isPendulum: (p) => p === PENDULUM }
+const apply = (state: GameState, action: Action) => applyWith(state, action, ctx)
 
 function newGame(): GameState {
   return createGame({
@@ -24,7 +25,7 @@ function deepFreeze<T>(o: T): T {
 }
 
 function run(state: GameState, action: Action): GameState {
-  const r = apply(state, action, ctx)
+  const r = apply(state, action)
   if (!r.ok) throw new Error(r.error)
   return r.state
 }
@@ -120,6 +121,16 @@ describe('orientation and counters', () => {
     expect(run(g, { type: 'setPosition', seat: 0, uid, faceUp: false, defense: false }).cards[uid]).toMatchObject({ faceUp: false, defense: true })
   })
 
+  it('flip and setPosition never turn a card face-up in the deck or hand', () => {
+    const g = drawn(1)
+    const inHand = g.zones['s0:hand:0']![0]!
+    const inDeck = g.zones['s0:deck:0']![0]!
+    for (const uid of [inHand, inDeck]) {
+      expect(run(g, { type: 'flip', seat: 0, uid }).cards[uid]!.faceUp).toBe(false)
+      expect(run(g, { type: 'setPosition', seat: 0, uid, faceUp: true, defense: true }).cards[uid]).toMatchObject({ faceUp: false, defense: false })
+    }
+  })
+
   it('addCounter never goes below 0, and counters reset in the graveyard', () => {
     const { g, uid } = onField()
     expect(run(g, { type: 'addCounter', seat: 0, uid, delta: -1 }).cards[uid]!.counters).toBe(0)
@@ -185,8 +196,9 @@ describe('life points, phases and turns', () => {
   })
 
   it('endTurn advances the turn, rotates seats, resets the phase and clears the attack', () => {
-    let g = newGame()
-    const uid = g.zones['s0:deck:0']![0]!
+    let g = drawn(1)
+    const uid = g.zones['s0:hand:0']![0]!
+    g = run(g, { type: 'move', seat: 0, uid, to: 's0:monster:0', faceUp: true })
     g = run(g, { type: 'setPhase', seat: 0, phase: 3 })
     g = run(g, { type: 'declareAttack', seat: 0, attacker: uid, target: null })
     g = run(g, { type: 'endTurn', seat: 0 })
@@ -205,12 +217,25 @@ describe('life points, phases and turns', () => {
   })
 
   it('declareAttack sets and clearAttack clears', () => {
-    const g = newGame()
-    const [a, b] = g.zones['s0:deck:0']!
+    let g = drawn(2)
+    const [a, b] = g.zones['s0:hand:0']!
+    g = run(g, { type: 'move', seat: 0, uid: a!, to: 's0:monster:0', faceUp: true })
+    g = run(g, { type: 'move', seat: 0, uid: b!, to: 'shared:emz:0', faceUp: true })
     const declared = run(g, { type: 'declareAttack', seat: 0, attacker: a!, target: b! })
     expect(declared.attack).toEqual({ attacker: a, target: b })
+    expect(run(g, { type: 'declareAttack', seat: 0, attacker: a!, target: null }).attack).toEqual({ attacker: a, target: null })
     expect(run(declared, { type: 'clearAttack', seat: 0 }).attack).toBeNull()
     expect(apply(g, { type: 'declareAttack', seat: 0, attacker: 'nope', target: null }).ok).toBe(false)
+  })
+
+  it('declareAttack needs the attacker and target in a monster zone', () => {
+    let g = drawn(2)
+    const [a, b] = g.zones['s0:hand:0']!
+    const deckCard = g.zones['s0:deck:0']![0]!
+    expect(apply(g, { type: 'declareAttack', seat: 0, attacker: deckCard, target: null }).ok).toBe(false)
+    expect(apply(g, { type: 'declareAttack', seat: 0, attacker: a!, target: null }).ok).toBe(false)
+    g = run(g, { type: 'move', seat: 0, uid: a!, to: 's0:monster:0', faceUp: true })
+    expect(apply(g, { type: 'declareAttack', seat: 0, attacker: a!, target: b! }).ok).toBe(false)
   })
 })
 
@@ -230,8 +255,10 @@ describe('purity and errors', () => {
   })
 
   it('never mutates its input, for every action type', () => {
-    const base = drawn(2)
+    let base = drawn(2)
     const [a, b] = base.zones['s0:hand:0']!
+    base = run(base, { type: 'move', seat: 0, uid: a!, to: 's0:monster:0', faceUp: true })
+    base = run(base, { type: 'move', seat: 0, uid: b!, to: 's0:monster:1', faceUp: true })
     const deck = base.zones['s0:deck:0']!
     const actions: Action[] = [
       { type: 'move', seat: 0, uid: a!, to: 's0:monster:0', faceUp: true },
@@ -249,7 +276,7 @@ describe('purity and errors', () => {
     ]
     const frozen = deepFreeze(structuredClone(base))
     for (const action of actions) {
-      expect(apply(frozen, action, ctx).ok).toBe(true)
+      expect(apply(frozen, action).ok).toBe(true)
     }
     expect(frozen).toEqual(base)
   })
@@ -270,7 +297,7 @@ describe('purity and errors', () => {
         rnd(4) === 0
           ? { type: 'flip', seat: 0, uid }
           : { type: 'move', seat: 0, uid, to, faceUp: rnd(2) === 0, defense: rnd(2) === 0 }
-      const r = apply(g, action, ctx)
+      const r = apply(g, action)
       if (r.ok) g = r.state
     }
     const all = Object.values(g.zones).flat()

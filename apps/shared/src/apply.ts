@@ -5,8 +5,8 @@ import { legalOrientation } from './zones'
 export type ApplyResult = { ok: true; state: GameState } | { ok: false; error: string }
 
 export interface ApplyContext {
-  /** Pendulum monsters stay face-up in the extra deck. Defaults to "never". */
-  isPendulum?: (passcode: number) => boolean
+  /** Pendulum monsters stay face-up in the extra deck. Required, so a missing catalog can't silently hide them. */
+  isPendulum: (passcode: number) => boolean
 }
 
 const FIELD_ZONES: readonly ZoneType[] = ['monster', 'spell', 'field', 'emz']
@@ -50,6 +50,13 @@ class Draft {
   }
 }
 
+/** Attackers and attack targets must be in a monster zone or an Extra Monster Zone. */
+function requireOnField(state: GameState, uid: string) {
+  const at = findCard(state, uid) ?? fail(`unknown card ${uid}`)
+  const type = zoneType(at.key)
+  if (type !== 'monster' && type !== 'emz') fail(`card ${uid} is not in a monster zone`)
+}
+
 function zoneType(key: string): ZoneType {
   return parseZoneKey(key)?.type ?? fail(`invalid zone ${key}`)
 }
@@ -61,7 +68,7 @@ function settle(d: Draft, key: string, ctx: ApplyContext) {
   if (type === 'extra') {
     for (const uid of list) {
       const card = d.card(uid)
-      card.faceUp = ctx.isPendulum?.(card.passcode) ?? false
+      card.faceUp = ctx.isPendulum(card.passcode)
       card.defense = false
     }
   }
@@ -84,10 +91,6 @@ function placeCard(d: Draft, uid: string, to: string, ctx: ApplyContext, opts: {
   const pose = legalOrientation(toType, opts.faceUp ?? card.faceUp, opts.defense ?? card.defense)
   card.faceUp = pose.faceUp
   card.defense = pose.defense
-  if (toType === 'deck' || toType === 'hand') {
-    card.faceUp = false
-    card.defense = false
-  }
   if (!FIELD_ZONES.includes(toType)) card.counters = 0
   settle(d, from.key, ctx)
   settle(d, to, ctx)
@@ -142,7 +145,7 @@ function handle(d: Draft, a: Action, ctx: ApplyContext) {
       if (sorted.length !== given.length || sorted.some((uid, i) => uid !== given[i])) {
         fail('order is not a permutation of the zone')
       }
-      s.zones[a.zone] = [...a.order]
+      d.zone(a.zone).splice(0, Infinity, ...a.order)
       return
     }
     case 'setLP': {
@@ -163,8 +166,8 @@ function handle(d: Draft, a: Action, ctx: ApplyContext) {
       s.attack = null
       return
     case 'declareAttack': {
-      if (!s.cards[a.attacker]) fail(`unknown card ${a.attacker}`)
-      if (a.target !== null && !s.cards[a.target]) fail(`unknown card ${a.target}`)
+      requireOnField(s, a.attacker)
+      if (a.target !== null) requireOnField(s, a.target)
       s.attack = { attacker: a.attacker, target: a.target }
       return
     }
@@ -182,7 +185,7 @@ function handle(d: Draft, a: Action, ctx: ApplyContext) {
  * Returns a new state with the action applied. The input is never changed.
  * An invalid action returns `{ ok: false }` and has no effect. Permissions (whose card it is) are not checked here.
  */
-export function apply(state: GameState, action: Action, ctx: ApplyContext = {}): ApplyResult {
+export function apply(state: GameState, action: Action, ctx: ApplyContext): ApplyResult {
   const draft = new Draft(state)
   try {
     handle(draft, action, ctx)

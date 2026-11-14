@@ -1,9 +1,10 @@
 // Pure data: no three.js imports, reusable by game state and interaction code.
 
-export { legalOrientation, zonePoses, type CardPose } from '@duelist/shared'
+import type { ZoneType } from '@duelist/shared'
+
+export { legalOrientation, zonePoses, type CardPose, type ZoneType } from '@duelist/shared'
 
 export type Owner = 'p1' | 'p2'
-export type ZoneType = 'monster' | 'spell' | 'field' | 'gy' | 'deck' | 'extra' | 'banished' | 'emz'
 
 export interface ZoneId {
   owner: Owner | 'shared'

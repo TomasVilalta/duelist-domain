@@ -90,7 +90,10 @@ Helpers: `zoneKey()`, `parseZoneKey()`, `zonesOf(seat)`, `findCard(state, uid) â
 ## T4: `Action` union and `apply()` (built, awaiting review)
 Built in `shared/src/actions.ts`, `apply.ts` and `zones.ts`. Decisions:
 - `apply(state, action, ctx?)` returns `{ ok: true, state } | { ok: false, error }`. It never throws for invalid input.
-- `ctx.isPendulum(passcode)` is how `apply` knows which extra deck cards stay face-up, since the state holds no card data. The client and server both pass a catalog lookup.
+- `ctx.isPendulum(passcode)` is how `apply` knows which extra deck cards stay face-up, since the state holds no card data. The client and server both pass a catalog lookup. `ctx` is a required argument, so it can't be forgotten.
+- `legalOrientation` forces cards in the deck and hand face-down, so `flip` and `setPosition` can't reveal them.
+- `declareAttack` needs the attacker (and the target, if any) in a monster zone or Extra Monster Zone.
+- The client's `ZoneType` is now the shared one, re-exported from `ZoneLayout.ts`.
 - `legalOrientation` and `zonePoses` moved to `zones.ts`, and the client's `ZoneLayout.ts` re-exports them.
 - `apply` copies on write and never changes its input. The tests deep-freeze the state to prove it.
 - Permissions (whose card or seat it is) are not checked in `apply`. That's the server's job in sprint 3.
