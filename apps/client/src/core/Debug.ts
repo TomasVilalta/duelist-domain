@@ -49,9 +49,10 @@ export function setupDebug(app: App): () => void {
   }, 500)
 
   // `copy(__game())` dumps the game state and action log as JSON. `__loadGame(json)` replaces the board with a dump.
-  const w = window as unknown as { __game?: () => string; __loadGame?: (json: string) => void }
+  const w = window as unknown as { __game?: () => string; __loadGame?: (dump: string | GameDump) => void }
   w.__game = () => dumpGame(useGameStore.getState())
-  w.__loadGame = (json) => app.loadDump(JSON.parse(json) as GameDump)
+  // Takes the JSON string from `__game()` or a pasted object literal.
+  w.__loadGame = (dump) => app.loadDump(typeof dump === 'string' ? (JSON.parse(dump) as GameDump) : dump)
 
   return () => {
     delete w.__game
