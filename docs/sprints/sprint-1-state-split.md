@@ -2,6 +2,19 @@
 
 Roadmap step 1. See [roadmap-v0.md](../roadmap-v0.md), and decisions D4, D5 and D6 in [decisions.md](../decisions.md).
 
+## Status
+
+| Task | Status |
+|---|---|
+| T1 tests in shared | done |
+| T2 card types | done |
+| T3 `GameState` | done |
+| T4 `Action` and `apply()` | done, review fixes applied |
+| T5 deck loading and `parseYdk` | done (not wired into the app until T6) |
+| T6 to T10 | not started |
+
+Next: T6 (Zustand game store).
+
 ## Goal
 Game state becomes a plain, serializable `GameState` in `@duelist/shared`, changed only by `apply(state, action)`. The Three.js client renders from a Zustand store holding that state. Local hotseat play must work the same as it does today.
 
@@ -23,7 +36,7 @@ Game state becomes a plain, serializable `GameState` in `@duelist/shared`, chang
 
 ---
 
-## T1: Set up tests in `@duelist/shared` (done, approved)
+## T1: Set up tests in `@duelist/shared` (done)
 Add Vitest to `apps/shared`, with a `test` script and a root `pnpm test` that runs it across packages.
 
 **DoD**
@@ -36,7 +49,7 @@ Add Vitest to `apps/shared`, with a `test` script and a root `pnpm test` that ru
 
 ---
 
-## T2: Card and catalog types in shared (built, awaiting review)
+## T2: Card and catalog types in shared (done)
 Move the card data model out of `client/src/data/demoDeck.ts` into `shared/src/cards.ts`.
 - `CardInfo`: the static catalog data keyed by passcode (name, kind, frame type, atk/def/level/scale/link value, race, attribute, archetype, desc, image URL).
 - `CardKind`, and `extraDeckKind()` (moved as-is).
@@ -52,7 +65,7 @@ Move the card data model out of `client/src/data/demoDeck.ts` into `shared/src/c
 
 ---
 
-## T3: `GameState` model and zone-key helpers (built, awaiting review)
+## T3: `GameState` model and zone-key helpers (done)
 Built in `shared/src/state.ts`. Differences from the original sketch below:
 - `pendulum` is not a zone type. The current board has no separate Pendulum zones (Pendulum cards use the spell zones), so it stays a play option only.
 - `createGame` takes passcode lists (`{ main: number[], extra: number[] }`) per player, and the caller decides what is main and what is extra. It doesn't shuffle: the caller dispatches a `shuffle` action.
@@ -87,7 +100,7 @@ Helpers: `zoneKey()`, `parseZoneKey()`, `zonesOf(seat)`, `findCard(state, uid) â
 
 ---
 
-## T4: `Action` union and `apply()` (built, awaiting review)
+## T4: `Action` union and `apply()` (done, review fixes applied)
 Built in `shared/src/actions.ts`, `apply.ts` and `zones.ts`. Decisions:
 - `apply(state, action, ctx?)` returns `{ ok: true, state } | { ok: false, error }`. It never throws for invalid input.
 - `ctx.isPendulum(passcode)` is how `apply` knows which extra deck cards stay face-up, since the state holds no card data. The client and server both pass a catalog lookup. `ctx` is a required argument, so it can't be forgotten.
@@ -145,7 +158,7 @@ Zone rules enforced in `apply()`, because they are layout facts rather than game
 
 ---
 
-## T5: Client deck loading into `GameState` (built, awaiting review)
+## T5: Client deck loading into `GameState` (done)
 Built as `shared/src/deck.ts` (`parseYdk`, `resolveDeck`) and `client/src/data/loadGame.ts` (`loadCatalog`, `demoDeckList`, `buildGame`, `buildDemoGame`). `buildDemoGame()` isn't called by the app yet: it gets wired in when the game store exists (T6), and the old demo deck path keeps running until T8/T9.
 
 Replace `loadDemoDeck`/`buildDemoDeck` with a function that takes passcode lists (from the current demo list, and later a `.ydk` file), resolves them through the catalog (the local `catalog.json` for now, then YGOPRODeck), and calls `createGame`. Add a `parseYdk(text)` function in shared for sprint 4, since it's small.
