@@ -19,7 +19,7 @@ import { CardGlow } from '@/anim/CardGlow'
 import { AttackFx } from '@/anim/AttackFx'
 import { AttackArrow } from '@/anim/AttackArrow'
 import { BoardState } from '@/state/BoardState'
-import { useGameStore } from '@/state/gameStore'
+import { useGameStore, type GameDump } from '@/state/gameStore'
 import { useUiStore } from '@/state/uiStore'
 import { createCardMesh, type Card } from '@/cards/Card'
 import { DeckPile } from '@/cards/DeckPile'
@@ -137,7 +137,7 @@ export class App {
     const state = this.game.cards[uid]
     const info = state && this.catalog.get(state.passcode)
     if (!info) return null
-    return { ...info, uid: Number(uid.slice(1)), ...this.statEdits.get(uid) }
+    return { ...info, ...this.statEdits.get(uid) }
   }
 
   /** Draw the top card of the local deck into the hand. */
@@ -258,7 +258,7 @@ export class App {
       const uid = this.deckPick
       const data = this.dataOf(uid)
       if (data && this.game.zones[this.ownDeck]?.includes(uid)) {
-        this.actionBar?.setFromData(data, (play) => this.playFromDeck(uid, play), [
+        this.actionBar?.setFromData(uid, data, (play) => this.playFromDeck(uid, play), [
           { label: 'To Hand', icon: 'hand', run: () => this.handFromDeck(uid) },
         ])
         this.viewer?.setSelected(uid)
@@ -594,6 +594,16 @@ export class App {
       if (this.disposed) return
       this.debugDispose = setupDebug(this)
     }
+  }
+
+  /** Replaces the board with a debug dump. Clears undo history. */
+  loadDump(dump: GameDump) {
+    this.timers.forEach((t) => window.clearTimeout(t))
+    this.timers = []
+    this.menu.close()
+    this.interaction?.cancelDrag()
+    this.interaction?.cancelTargeting()
+    useGameStore.getState().load(dump.game, this.applyCtx)
   }
 
   private onResize = () => {

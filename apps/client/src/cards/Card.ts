@@ -90,8 +90,7 @@ export function getSleeveMaterial() {
 
 /** `CreateView` for `CardViews`. */
 export function createCardMesh(uid: string, info: CardInfo): Card {
-  // TODO(T10): `CardData.uid` becomes the string uid.
-  return new Card({ ...info, uid: Number(uid.slice(1)) }, uid)
+  return new Card({ ...info }, uid)
 }
 
 export class Card {
@@ -117,7 +116,7 @@ export class Card {
   /** Pendulum scale. Shown face-up in a spell/trap zone. */
   private scaleMark: Mesh | null = null
 
-  constructor(data: CardData, uid = `c${data.uid}`) {
+  constructor(data: CardData, uid: string) {
     this.data = data
     this.uid = uid
     const { geometry, back } = getSharedCardResources()

@@ -36,7 +36,7 @@ export class ActionBar {
   /** Set when the card is a field monster that can attack; true means a direct attack. */
   private direct: boolean | null = null
   private extra: BarExtra[] = []
-  private deck: { data: CardData; onPlay: (play: PlayAction) => void; extra: DeckExtra[] } | null = null
+  private deck: { uid: string; data: CardData; onPlay: (play: PlayAction) => void; extra: DeckExtra[] } | null = null
   private targeting = false
 
   private readonly onPlay: (card: Card, play: PlayAction) => void
@@ -68,11 +68,11 @@ export class ActionBar {
   }
 
   /** Plays for a selected deck card. The card stays in the deck until a button runs. */
-  setFromData(data: CardData | null, onPlay: (play: PlayAction) => void, extra: DeckExtra[] = []) {
+  setFromData(uid: string, data: CardData | null, onPlay: (play: PlayAction) => void, extra: DeckExtra[] = []) {
     this.card = null
     this.extra = []
     this.direct = null
-    this.deck = data ? { data, onPlay, extra } : null
+    this.deck = data ? { uid, data, onPlay, extra } : null
     this.paint()
   }
 
@@ -111,7 +111,7 @@ export class ActionBar {
     }
     const deck = this.deck
     if (deck) {
-      const id = `deck:${deck.data.uid}:${deck.extra.map((e) => e.label).join(',')}`
+      const id = `deck:${deck.uid}:${deck.extra.map((e) => e.label).join(',')}`
       const same = this.root.dataset.card === id && !this.root.hidden
       this.root.hidden = false
       this.root.className = `action-bar kind-${cardKind(deck)}`
@@ -150,7 +150,7 @@ export class ActionBar {
       this.root.replaceChildren()
       return
     }
-    const id = `${card.data.uid}:${this.direct ?? 'hand'}:${this.extra.map((e) => e.label).join(',')}`
+    const id = `${card.uid}:${this.direct ?? 'hand'}:${this.extra.map((e) => e.label).join(',')}`
     const same = this.root.dataset.card === id && !this.root.hidden
     this.root.hidden = false
     this.root.className = this.direct === null ? `action-bar kind-${cardKind(card)}` : 'action-bar is-attack'

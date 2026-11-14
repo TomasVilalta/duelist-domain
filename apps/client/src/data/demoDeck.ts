@@ -1,9 +1,9 @@
-import { EXTRA_KINDS, extraDeckKind, type CardInfo, type CardKind } from '@duelist/shared'
+import type { CardInfo } from '@duelist/shared'
 
-/** A card instance in the current client: shared catalog data plus a per-game uid. */
-export type CardData = Omit<CardInfo, 'passcode'> & { uid: number; passcode?: number }
+/** Printed card data, as the client draws it. The card's game uid lives on `Card.uid`. */
+export type CardData = Omit<CardInfo, 'passcode'> & { passcode?: number }
 
-type Template = Omit<CardData, 'uid'>
+type Template = CardData
 
 /** Placeholder cards, used when the card catalog can't be loaded. */
 export const TEMPLATES: Template[] = [
@@ -34,81 +34,6 @@ export const TEMPLATES: Template[] = [
   { name: 'Dusk Pendulum', kind: 'monster', atk: 1500, def: 1500, level: 4, scale: 8, type: 'Pendulum Effect Monster' },
   { name: 'Glade Pendulum', kind: 'monster', atk: 1800, def: 800, level: 5, scale: 1, type: 'Pendulum Effect Monster' },
 ]
-
-export interface DemoDeck {
-  /** Shuffled into the Deck. Two copies of each card, one of each Pendulum. */
-  main: CardData[]
-  /** One Fusion, Synchro, XYZ, and Link monster. */
-  extra: CardData[]
-}
-
-function copiesFor(type?: string): { n: number; extra: boolean } {
-  if (extraDeckKind(type)) return { n: 1, extra: true }
-  if (type?.includes('Pendulum')) return { n: 1, extra: false }
-  return { n: 2, extra: false }
-}
-
-function deal(templates: Template[]): DemoDeck {
-  const main: CardData[] = []
-  const extra: CardData[] = []
-  let uid = 1
-  for (const t of templates) {
-    const { n, extra: toExtra } = copiesFor(t.type)
-    for (let i = 0; i < n; i++) {
-      const card = { ...t, uid: uid++ }
-      if (toExtra) extra.push(card)
-      else main.push(card)
-    }
-  }
-  extra.sort((a, b) => EXTRA_KINDS.indexOf(extraDeckKind(a.type)!) - EXTRA_KINDS.indexOf(extraDeckKind(b.type)!))
-  return { main, extra }
-}
-
-interface CatalogCard {
-  passcode: number
-  name: string
-  kind: CardKind
-  atk?: number
-  def?: number
-  level?: number
-  scale?: number
-  type?: string
-  race?: string
-  attribute?: string
-  archetype?: string
-  desc?: string
-  file: string
-}
-
-/** Main deck plus one extra-deck monster of each type, from the local catalog. */
-export async function loadDemoDeck(): Promise<DemoDeck> {
-  const res = await fetch(`${import.meta.env.BASE_URL}cards/catalog.json`)
-  if (!res.ok) throw new Error(`card catalog ${res.status}`)
-  const list = (await res.json()) as CatalogCard[]
-  const base = import.meta.env.BASE_URL
-  return deal(
-    list.map((c) => ({
-      name: c.name,
-      kind: c.kind,
-      atk: c.atk,
-      def: c.def ?? undefined,
-      level: c.level || undefined,
-      scale: c.scale ?? undefined,
-      passcode: c.passcode,
-      image: `${base}cards/${c.file}`,
-      type: c.type,
-      race: c.race,
-      attribute: c.attribute,
-      archetype: c.archetype,
-      desc: c.desc,
-    })),
-  )
-}
-
-/** Placeholder main deck and extra deck, used when the catalog cannot be loaded. */
-export function buildDemoDeck(): DemoDeck {
-  return deal(TEMPLATES)
-}
 
 export function shuffle<T>(arr: T[]): T[] {
   for (let i = arr.length - 1; i > 0; i--) {

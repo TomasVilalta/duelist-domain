@@ -256,7 +256,7 @@ Rewire `CardActions`, `HandInteraction` and the deck/pile handlers in `App.ts` (
 
 ---
 
-## T10: Remove the old snapshot and undo code, and add a debug view
+## T10: Remove the old snapshot and undo code, and add a debug view (built, in review: https://github.com/TomasVilalta/duelist-domain/pull/8)
 - Delete `state/Snapshot.ts` and `App.capture()`, `restore()`, `take()` and `snapOf()`. Undo uses `gameStore.undo()`.
 - Remove `CardData.uid: number` in favor of string uids from the state.
 - Add a debug panel (lil-gui or a `window.__game` getter) that can dump the current `GameState` and the action log as JSON.
