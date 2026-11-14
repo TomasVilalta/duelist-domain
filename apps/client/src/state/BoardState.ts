@@ -90,7 +90,6 @@ export class BoardState {
     if (this.hovered === card) this.hovered = null
     const list = this.zones.get(key)
     if (list) list.splice(list.indexOf(card), 1)
-    card.zoneKey = null
     card.covered = false
     this.layoutZone(key, 0.15)
   }
@@ -107,7 +106,6 @@ export class BoardState {
     // `index` counts from the bottom, like the game state. Omitted means the top.
     list.splice(index === undefined ? list.length : Math.max(0, Math.min(index, list.length)), 0, card)
     this.at.set(card, key)
-    card.zoneKey = key
     const zone = getZoneByKey(key)
     const fit = zone ? legalOrientation(zone.id.type, card.faceUp, card.defense) : null
     const landing = origin && fit ? landingFor(key, from ?? null, fit.faceUp, fit.defense) : null
@@ -130,23 +128,11 @@ export class BoardState {
     const zone = getZoneByKey(key)
     const list = this.zones.get(key)
     if (!zone || !list) return
-    // Extra deck: Pendulum monsters stay face-up on top. Everything else is face-down.
-    if (zone.id.type === 'extra') {
-      for (const card of list) {
-        card.faceUp = card.data.type?.toLowerCase().includes('pendulum') ?? false
-        card.defense = false
-      }
-    }
-    // Extra deck and banished: face-up cards stay above every face-down card.
-    if (zone.id.type === 'extra' || zone.id.type === 'banished') {
-      list.sort((a, b) => Number(a.faceUp) - Number(b.faceUp))
-    }
+    // Order and pose come from the game state (`apply()` keeps face-up cards above face-down ones in the
+    // extra deck and banished pile, and forces legal poses). This only lays the cards out.
     const count = list.length
     const pile = (zone.id.type === 'monster' || zone.id.type === 'emz') && count >= 2
     list.forEach((card, i) => {
-      const fit = legalOrientation(zone.id.type, card.faceUp, card.defense)
-      card.faceUp = fit.faceUp
-      card.defense = fit.defense
       // Only the top monster shows ATK, level, and counters. Cards under it are materials.
       card.covered = pile && i < count - 1
       if (this.busy.has(card)) return

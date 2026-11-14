@@ -1,7 +1,10 @@
+/** Board side of the HUD (DOM layout): the near side is seat 0. */
 type Owner = 'p1' | 'p2'
 
+const side = (seat: number): Owner => (seat === 0 ? 'p1' : 'p2')
+
 interface Handlers {
-  onLp: (owner: Owner, delta: number) => void
+  onLp: (seat: number, delta: number) => void
   phases: readonly string[]
   onSetPhase: (index: number) => void
   onEndTurn: () => void
@@ -67,12 +70,11 @@ export class Hud {
 
     const steps = [-1000, -100, 100, 1000]
     this.root.querySelectorAll('.lp-row').forEach((row, i) => {
-      const owner: Owner = i === 0 ? 'p1' : 'p2'
       for (const step of steps) {
         const b = document.createElement('button')
         b.type = 'button'
         b.textContent = step > 0 ? `+${step}` : `${step}`
-        b.addEventListener('click', () => handlers.onLp(owner, step))
+        b.addEventListener('click', () => handlers.onLp(i, step))
         row.appendChild(b)
       }
     })
@@ -120,7 +122,8 @@ export class Hud {
     if (e.key === 'Escape') this.phasePop.hidden = true
   }
 
-  setPhase(turn: number, phase: string, active: Owner) {
+  setPhase(turn: number, phase: string, activeSeat: number) {
+    const active = side(activeSeat)
     this.phaseBtn.textContent = `Turn ${turn} · ${phase}`
     this.phaseBtn.classList.toggle('phase-you', active === 'p1')
     this.phaseBtn.classList.toggle('phase-opp', active === 'p2')
@@ -129,7 +132,8 @@ export class Hud {
     this.lpEl.p2.classList.toggle('lp-active', active === 'p2')
   }
 
-  setLp(owner: Owner, value: number) {
+  setLp(seat: number, value: number) {
+    const owner = side(seat)
     if (this.target[owner] === value) return
     const from = this.shown[owner]
     this.target[owner] = value

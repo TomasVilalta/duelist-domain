@@ -69,6 +69,44 @@ describe('gameStore', () => {
     expect(console.warn).toHaveBeenCalledOnce()
   })
 
+  it('dispatchAll is one undo step and one notification, and applies nothing if one action fails', () => {
+    const store = loaded()
+    const original = structuredClone(store.getState().game)
+    const listener = vi.fn()
+    store.subscribe(listener)
+    store.getState().dispatchAll([
+      { type: 'draw', seat: 0, count: 1 },
+      { type: 'draw', seat: 0, count: 1 },
+    ])
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(store.getState().log).toHaveLength(2)
+    expect(store.getState().history).toHaveLength(1)
+    store.getState().dispatchAll([
+      { type: 'draw', seat: 0, count: 1 },
+      { type: 'flip', seat: 0, uid: 'nope' },
+    ])
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(store.getState().log).toHaveLength(2)
+    store.getState().undo()
+    expect(store.getState().game).toEqual(original)
+    expect(store.getState().log).toHaveLength(0)
+  })
+
+  it('attack actions are logged but are not undo steps', () => {
+    const store = loaded()
+    store.getState().dispatch({ type: 'draw', seat: 0, count: 1 })
+    const uid = store.getState().game.zones['s0:hand:0']![0]!
+    store.getState().dispatch({ type: 'move', seat: 0, uid, to: 's0:monster:0', faceUp: true })
+    const before = store.getState().history.length
+    store.getState().dispatch({ type: 'declareAttack', seat: 0, attacker: uid, target: null })
+    store.getState().dispatch({ type: 'clearAttack', seat: 0 })
+    expect(store.getState().history).toHaveLength(before)
+    expect(store.getState().log).toHaveLength(4)
+    store.getState().undo()
+    expect(store.getState().game.zones['s0:monster:0']).toEqual([])
+    expect(store.getState().log).toHaveLength(1)
+  })
+
   it('dispatch before load is ignored', () => {
     const store = createGameStore()
     const listener = vi.fn()
