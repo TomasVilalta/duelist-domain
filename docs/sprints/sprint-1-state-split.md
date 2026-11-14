@@ -36,7 +36,7 @@ Add Vitest to `apps/shared`, with a `test` script and a root `pnpm test` that ru
 
 ---
 
-## T2: Card and catalog types in shared
+## T2: Card and catalog types in shared (built, awaiting review)
 Move the card data model out of `client/src/data/demoDeck.ts` into `shared/src/cards.ts`.
 - `CardInfo`: the static catalog data keyed by passcode (name, kind, frame type, atk/def/level/scale/link value, race, attribute, archetype, desc, image URL).
 - `CardKind`, and `extraDeckKind()` (moved as-is).
@@ -47,7 +47,7 @@ Move the card data model out of `client/src/data/demoDeck.ts` into `shared/src/c
 - `pnpm typecheck` and `pnpm lint` pass.
 
 **Test cases**
-- `extraDeckKind('Fusion Monster') === 'fusion'`, Synchro/Xyz/Link likewise, and `'Pendulum Effect Fusion Monster'` gives `'fusion'`.
+- `extraDeckKind('Fusion Monster') === 'Fusion'`, Synchro/XYZ/Link likewise (the function returns the capitalized kind, as it did before the move), and `'Pendulum Effect Fusion Monster'` gives `'Fusion'`.
 - `extraDeckKind('Effect Monster') === null`.
 
 ---

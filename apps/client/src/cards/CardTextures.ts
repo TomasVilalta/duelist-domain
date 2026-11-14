@@ -1,5 +1,6 @@
 import { CanvasTexture, SRGBColorSpace, type Texture } from 'three'
-import type { CardData, CardKind } from '@/data/demoDeck'
+import type { CardKind } from '@duelist/shared'
+import type { CardData } from '@/data/demoDeck'
 
 const W = 320
 const H = 467

@@ -1,25 +1,7 @@
-export type CardKind = 'monster' | 'spell' | 'trap'
+import { EXTRA_KINDS, extraDeckKind, type CardInfo, type CardKind } from '@duelist/shared'
 
-export interface CardData {
-  uid: number
-  name: string
-  kind: CardKind
-  atk?: number
-  def?: number
-  level?: number
-  /** Pendulum scale, when this is a Pendulum monster. */
-  scale?: number
-  /** YGOPRODeck passcode. Copies of a card share one image. */
-  passcode?: number
-  /** Local card image, when this came from the catalog. */
-  image?: string
-  /** Printed text, for example "Normal Monster" or "Spell Card". */
-  type?: string
-  race?: string
-  attribute?: string
-  archetype?: string
-  desc?: string
-}
+/** A card instance in the current client: shared catalog data plus a per-game uid. */
+export type CardData = Omit<CardInfo, 'passcode'> & { uid: number; passcode?: number }
 
 type Template = Omit<CardData, 'uid'>
 
@@ -51,15 +33,6 @@ const TEMPLATES: Template[] = [
   { name: 'Dusk Pendulum', kind: 'monster', atk: 1500, def: 1500, level: 4, scale: 8, type: 'Pendulum Effect Monster' },
   { name: 'Glade Pendulum', kind: 'monster', atk: 1800, def: 800, level: 5, scale: 1, type: 'Pendulum Effect Monster' },
 ]
-
-const EXTRA_KINDS = ['Fusion', 'Synchro', 'XYZ', 'Link'] as const
-
-/** Fusion, Synchro, XYZ, or Link. Pendulum monsters in the main deck do not match. */
-export function extraDeckKind(type?: string): (typeof EXTRA_KINDS)[number] | null {
-  if (!type) return null
-  const lower = type.toLowerCase()
-  return EXTRA_KINDS.find((kind) => lower.includes(kind.toLowerCase())) ?? null
-}
 
 export interface DemoDeck {
   /** Shuffled into the Deck. Two copies of each card, one of each Pendulum. */
