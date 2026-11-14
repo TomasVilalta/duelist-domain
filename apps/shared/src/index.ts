@@ -1,6 +1,6 @@
 export * from './cards'
-
-export type Seat = number;
+export * from './seat'
+export * from './state'
 
 export type ClientMessage = { type: "ping" };
 

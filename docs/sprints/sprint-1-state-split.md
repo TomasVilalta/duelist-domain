@@ -52,8 +52,13 @@ Move the card data model out of `client/src/data/demoDeck.ts` into `shared/src/c
 
 ---
 
-## T3: `GameState` model and zone-key helpers
-`shared/src/state.ts`:
+## T3: `GameState` model and zone-key helpers (built, awaiting review)
+Built in `shared/src/state.ts`. Differences from the original sketch below:
+- `pendulum` is not a zone type. The current board has no separate Pendulum zones (Pendulum cards use the spell zones), so it stays a play option only.
+- `createGame` takes passcode lists (`{ main: number[], extra: number[] }`) per player, and the caller decides what is main and what is extra. It doesn't shuffle: the caller dispatches a `shuffle` action.
+- `Phase` is an index into `PHASES` (`Draw` to `End`, as in `App.ts`). `parseZoneKey` returns `null` for an invalid key.
+- `zones` has an entry for every zone, empty or not, so `apply()` can rely on the key existing.
+
 ```ts
 type ZoneType = 'monster'|'spell'|'field'|'pendulum'|'gy'|'deck'|'extra'|'banished'|'hand'|'emz'
 interface CardState { uid: string; passcode: number; owner: Seat; faceUp: boolean; defense: boolean; counters: number }
