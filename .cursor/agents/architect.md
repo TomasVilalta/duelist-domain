@@ -38,5 +38,6 @@ Rules:
 ## Output
 
 - Return the proposed sprint doc or the recommendations. Do not write code.
-- List open questions and risky assumptions at the end.
+- Everything you return is a proposal. The human approves all product and architecture decisions.
+- List open questions and risky assumptions at the end. Give options for each.
 - Be brief. No preamble.

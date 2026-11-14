@@ -13,6 +13,7 @@ import {
   Vector3,
 } from 'three'
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { parseZoneKey, type CardInfo, type CardState } from '@duelist/shared'
 import { CARD_H, CARD_W } from '@/config'
 import type { CardData } from '@/data/demoDeck'
 import { getZoneByKey } from '@/scene/ZoneLayout'
@@ -87,15 +88,24 @@ export function getSleeveMaterial() {
   return getSharedCardResources().back
 }
 
+/** `CreateView` for `CardViews`. */
+export function createCardMesh(uid: string, info: CardInfo): Card {
+  // TODO(T10): `CardData.uid` becomes the string uid.
+  return new Card({ ...info, uid: Number(uid.slice(1)) })
+}
+
 export class Card {
   readonly mesh: Mesh
   readonly data: CardData
-  /** Board state (manual, no rules): where the card is and how it's turned. */
+  /**
+   * Derived from `CardState` and set by `applyState()` (via `CardViews`).
+   * The pre-store interaction code still writes them directly until T9 rewires it to dispatch actions.
+   */
   zoneKey: string | null = null
   faceUp = true
   defense = false
   counters = 0
-  /** Under another card in a monster zone. Stats, level, scale, and counters stay hidden. */
+  /** Derived: under another card in a monster zone. Stats, level, scale, and counters stay hidden. */
   covered = false
   private badge: Mesh | null = null
   private overlay: Mesh[] = []
@@ -178,7 +188,7 @@ export class Card {
     }
     if (this.badge) this.badge.visible = true
     if (this.overlay.length === 0) return
-    const type = this.zoneKey ? getZoneByKey(this.zoneKey)?.id.type : undefined
+    const type = this.zoneKey ? (parseZoneKey(this.zoneKey)?.type ?? getZoneByKey(this.zoneKey)?.id.type) : undefined
     const monsterSpot = this.faceUp && (!this.zoneKey || type === 'monster' || type === 'emz')
     const spellSpot = this.faceUp && type === 'spell'
     if (this.stats) this.stats.visible = monsterSpot
@@ -220,6 +230,15 @@ export class Card {
     this.mesh.worldToLocal(V)
     m.position.copy(V)
     m.quaternion.copy(LQ)
+  }
+
+  /** Copies the visual fields from the game state. */
+  applyState(state: CardState, zoneKey: string, covered: boolean) {
+    this.zoneKey = zoneKey
+    this.faceUp = state.faceUp
+    this.defense = state.defense
+    this.covered = covered
+    if (state.counters !== this.counters) this.setCounters(state.counters)
   }
 
   setCounters(n: number) {
